@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "backlog-board",
+  "description": "Project-independent epic/task/ADR backlog tracker for Claude Code, with a generated backlog board.",
+  "owner": {
+    "name": "Jakub"
+  },
+  "plugins": [
+    {
+      "name": "backlog-board",
+      "description": "Markdown-native epic/task/ADR tracker with a generated backlog HTML board.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

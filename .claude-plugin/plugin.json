@@ -1,0 +1,46 @@
+{
+  "name": "backlog-board",
+  "description": "Markdown-native epic/task/ADR tracker with a live, read-only board server (search, filters, SSE live-reload). No MCP, stdlib-only Python server, no build step.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Jakub"
+  },
+  "license": "MIT",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/server/serve.py\" --quiet",
+            "timeout": 5,
+            "statusMessage": "Starting backlog board (if this project has one)..."
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/server/serve.py\" --session-end --quiet",
+            "timeout": 5,
+            "statusMessage": "Stopping backlog board (if this was the last session)..."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/server/serve.py\" --context-nudge --quiet",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

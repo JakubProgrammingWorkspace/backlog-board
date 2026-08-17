@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backlog board</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<script>
+  // Runs before paint so there's no flash of the wrong theme on load.
+  (function () {
+    var saved = localStorage.getItem("backlog-theme");
+    var theme = saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    document.documentElement.dataset.theme = theme;
+  })();
+</script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="title-row">
+    <h1><span id="project-name">Backlog</span></h1>
+    <span id="conn-dot" class="conn-dot" title="connecting…"></span>
+    <button type="button" id="theme-toggle" class="theme-toggle" aria-label="toggle light/dark theme"></button>
+  </div>
+  <p class="hint">Read-only — this board never writes to <code>backlog/</code>. Ask Claude in
+    this project to add a task, move status, or record a decision; the board updates live.
+    Columns sort P1 first. Priority: <b>P1</b> urgent/blocking, <b>P2</b> normal, <b>P3</b> low/someday.</p>
+
+  <div class="controls">
+    <input id="search" type="search" placeholder="search id / title / body…" autocomplete="off">
+    <select id="epic-filter"><option value="">all epics</option></select>
+    <div class="pri-chips" id="pri-chips">
+      <button type="button" class="chip pri-P1" data-pri="P1" title="P1 — urgent, blocking">P1</button>
+      <button type="button" class="chip pri-P2" data-pri="P2" title="P2 — normal">P2</button>
+      <button type="button" class="chip pri-P3" data-pri="P3" title="P3 — low / someday">P3</button>
+    </div>
+    <label class="swimlane-toggle">
+      <input type="checkbox" id="group-by-epic"> group by epic
+    </label>
+  </div>
+
+  <nav class="tabs">
+    <button type="button" class="tab active" data-tab="board">Board</button>
+    <button type="button" class="tab" data-tab="epics">Epics</button>
+    <button type="button" class="tab" data-tab="adr">ADR</button>
+  </nav>
+</header>
+
+<main>
+  <section id="tab-board" class="tab-panel active">
+    <div id="board" class="board"></div>
+  </section>
+  <section id="tab-epics" class="tab-panel">
+    <div id="epics-list" class="epics-list"></div>
+  </section>
+  <section id="tab-adr" class="tab-panel">
+    <article id="adr-body" class="adr-body markdown-body"></article>
+  </section>
+</main>
+
+<aside id="drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-inner">
+    <button type="button" id="drawer-close" class="drawer-close" aria-label="close">×</button>
+    <div id="drawer-content"></div>
+  </div>
+</aside>
+<div id="drawer-backdrop" class="drawer-backdrop"></div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="/static/vendor/marked.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
