@@ -205,6 +205,7 @@ it yourself if the team should share settings):
 | `archive_enabled` | `true` | Turns the automatic startup sweep off. Manual `build.py --archive` still works either way. |
 | `nudge_at_tokens` | `120000` | Context size (real token count) at which the session-boundary nudge starts firing. |
 | `nudge_every_tokens` | `25000` | How much further context has to grow before the nudge fires again. |
+| `require_deferral_links` | `false` | When `true`, `build.py` refuses to build if a `done`/`review` task has an unchecked subtask that doesn't name a filed task id (`T-0xx`) — deferred work has to be filed as a follow-up, not just left as a note. |
 
 ```json
 {
@@ -214,7 +215,8 @@ it yourself if the team should share settings):
   "archive_after_days": 3,
   "archive_enabled": true,
   "nudge_at_tokens": 120000,
-  "nudge_every_tokens": 25000
+  "nudge_every_tokens": 25000,
+  "require_deferral_links": false
 }
 ```
 

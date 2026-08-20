@@ -230,6 +230,19 @@ change. Say in chat that it's ready for review, in one line.
 `review` is not a request for permission to keep going — the work is done, this is
 just the acceptance step. Don't block on it before moving to the next task.
 
+**Deferring a subtask instead of finishing it.** Sometimes a subtask turns out to
+be out of scope for the task actually in hand — a tangential bug found along the
+way, a follow-up measurement that only makes sense once this lands, a harder
+variant deliberately left for later. That subtask can go to `review`/`done`
+unchecked, but only with a reason: say why in `## Notes`, and if it's substantial
+enough to need its own tracked work, file it immediately as its own task (see
+"Incidental finding" below) and reference that task's id in the subtask line
+itself — otherwise the deferral has no home and quietly falls off the board the
+moment this task is accepted. A project can make this a hard build-time check —
+`require_deferral_links: true` in `board.config.json` — which makes `build.py`
+refuse to build if a `done`/`review` task has an unchecked subtask naming no
+filed task id. Off by default; see the Configuration reference in the README.
+
 ## Accepting a task or epic — status: done
 
 Setting `status: done` **and `completed: YYYY-MM-DD`** (today) is how a human

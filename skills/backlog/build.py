@@ -11,12 +11,16 @@ For a live, searchable board, install the backlog-board plugin and run
 `/backlog-board` — see the plugin's server/ (not part of this file, which stays
 dependency-free so it works standalone in a project without the plugin installed).
 """
+import json
 import re
 import sys
 from pathlib import Path
 
 CHECKBOX_RE = re.compile(r"^\s*-\s*\[([ xX])\]", re.MULTILINE)
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n?", re.DOTALL)
+DEFERRAL_REF_RE = re.compile(r"T-\d{3}")
+SUBTASK_LINE_RE = re.compile(r"^(\s*)-\s*\[([ xX])\]")
+HEADING_RE = re.compile(r"^#{1,6}\s")
 
 
 def parse_frontmatter(text):
@@ -56,8 +60,29 @@ def load_items(dir_path, kind):
         fields["_done"] = done
         fields["_total"] = total
         fields["_kind"] = kind
+        fields["_body"] = body
         items.append(fields)
     return items
+
+
+def _read_config(backlog_dir: Path) -> dict:
+    """Same optional, gitignored board.config.json the board server reads (see
+    serve.py's own _read_config) — duplicated rather than imported, since build.py
+    stays a standalone, dependency-free file that works without the plugin installed."""
+    cfg = backlog_dir / "board.config.json"
+    if not cfg.is_file():
+        return {}
+    try:
+        return json.loads(cfg.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def configured_require_deferral_links(backlog_dir: Path) -> bool:
+    """Read {"require_deferral_links": bool} from board.config.json. Defaults to
+    False — off unless a project opts in, since forcing every unchecked subtask to
+    name a filed task id is a real workflow constraint other projects may not want."""
+    return bool(_read_config(backlog_dir).get("require_deferral_links", False))
 
 
 def next_id(items, prefix):
@@ -80,6 +105,65 @@ def check_duplicate_ids(epics, tasks):
                 f"— renumber one of them and re-run build.py"
             )
         seen[item_id] = item["_path"]
+
+
+def _subtask_blocks(body):
+    """Yield (checked, block_text) for each subtask: its checkbox line plus any
+    indented continuation lines, up to the next checkbox or the next heading. A
+    deferral note commonly wraps across lines, so a per-line regex alone can't see
+    the whole subtask's text."""
+    lines = body.splitlines()
+    blocks = []
+    current = None
+    for line in lines:
+        m = SUBTASK_LINE_RE.match(line)
+        if m:
+            if current is not None:
+                blocks.append(current)
+            current = {"checked": m.group(2).lower() == "x", "lines": [line]}
+        elif current is not None:
+            if HEADING_RE.match(line) or SUBTASK_LINE_RE.match(line):
+                blocks.append(current)
+                current = None
+            elif line.strip() == "" and not line.startswith((" ", "\t")):
+                blocks.append(current)
+                current = None
+            else:
+                current["lines"].append(line)
+    if current is not None:
+        blocks.append(current)
+    return [(b["checked"], "\n".join(b["lines"])) for b in blocks]
+
+
+def check_deferred_subtasks(tasks):
+    """Opt-in (see configured_require_deferral_links): a done/review task may keep an
+    unchecked subtask only if that subtask names a filed task id — otherwise the
+    deferred work has no home and quietly falls off the board (a task can reach done/
+    review with an honest, explained deferral in its Notes, and nothing ever files the
+    follow-up). `review` is included, not just `done`, because the board's own
+    promote_stale_review sweep auto-promotes review -> done with no subtask check after
+    review_after_days — review is the last point a human is still looking. Same
+    after-the-fact, named-failure shape as check_duplicate_ids: this can't stop a stale
+    board sweep from running, but it stops the next `build.py` from staying quiet
+    about the result."""
+    ids = {t.get("id") for t in tasks}
+    for t in tasks:
+        if t.get("status") not in ("done", "review"):
+            continue
+        own_id = t.get("id")
+        for checked, block in _subtask_blocks(t.get("_body", "")):
+            if checked:
+                continue
+            refs = {r for r in DEFERRAL_REF_RE.findall(block) if r != own_id}
+            if refs & ids:
+                continue
+            snippet = block.strip().splitlines()[0][:80]
+            raise SystemExit(
+                f"backlog: {own_id} is {t.get('status')} with an unchecked subtask "
+                f"that names no filed task id: \"{snippet}\" ({t['_path']}) "
+                f"— file a follow-up task and reference its ID in the subtask, "
+                f"or check the box"
+            )
 
 
 def derive_epic_status(epic, tasks):
@@ -166,6 +250,8 @@ def run(backlog_dir: Path):
     epics = load_items(backlog_dir / "epics", "epic")
     tasks = load_items(backlog_dir / "tasks", "task")
     check_duplicate_ids(epics, tasks)
+    if configured_require_deferral_links(backlog_dir):
+        check_deferred_subtasks(tasks)
     for e in epics:
         e["status"] = derive_epic_status(e, tasks)
     (backlog_dir / "INDEX.md").write_text(build_index(epics, tasks))
@@ -227,6 +313,35 @@ def selftest():
     except SystemExit as exc:
         assert "T-001" in str(exc) and "a" in str(exc) and "b" in str(exc), exc
 
+    # check_deferred_subtasks: done/review task with a bare unchecked subtask -> raises
+    bare = {"id": "T-010", "status": "done", "_path": "a",
+            "_body": "## Subtasks\n- [ ] do the thing\n"}
+    try:
+        check_deferred_subtasks([bare])
+        raise AssertionError("expected SystemExit on unreferenced deferred subtask")
+    except SystemExit as exc:
+        assert "T-010" in str(exc), exc
+
+    # ...unless the subtask names a filed task id, and that id exists
+    referenced = {"id": "T-010", "status": "done", "_path": "a",
+                  "_body": "## Subtasks\n- [ ] do the thing\n      — deferred, filed as [[T-011]]\n"}
+    followup = {"id": "T-011", "status": "todo", "_path": "b", "_body": ""}
+    check_deferred_subtasks([referenced, followup])  # no raise
+
+    # ...referencing an id that isn't actually filed still raises
+    dangling = {"id": "T-010", "status": "done", "_path": "a",
+                "_body": "## Subtasks\n- [ ] do the thing — see T-999\n"}
+    try:
+        check_deferred_subtasks([dangling])
+        raise AssertionError("expected SystemExit on reference to unfiled id")
+    except SystemExit as exc:
+        assert "T-010" in str(exc), exc
+
+    # todo tasks with unchecked subtasks are untouched regardless
+    todo_open = {"id": "T-012", "status": "todo", "_path": "c",
+                 "_body": "## Subtasks\n- [ ] not started\n"}
+    check_deferred_subtasks([todo_open])  # no raise
+
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         project_root = Path(tmp)
@@ -260,6 +375,23 @@ def selftest():
 
         run(backlog_dir)
         assert "next:" in (backlog_dir / "INDEX.md").read_text()
+
+        # require_deferral_links defaults to off: a done task with a bare unchecked
+        # subtask doesn't stop run() unless the project opts in via board.config.json
+        assert configured_require_deferral_links(backlog_dir) is False
+        (backlog_dir / "tasks" / "T-003-x.md").write_text(
+            "---\nid: T-003\nepic: E-001\nstatus: done\n---\n- [ ] deferred, unlinked\n"
+        )
+        run(backlog_dir)  # no raise — opt-in check is off by default
+        (backlog_dir / "board.config.json").write_text('{"require_deferral_links": true}')
+        assert configured_require_deferral_links(backlog_dir) is True
+        try:
+            run(backlog_dir)
+            raise AssertionError("expected SystemExit once require_deferral_links is on")
+        except SystemExit as exc:
+            assert "T-003" in str(exc), exc
+        (backlog_dir / "tasks" / "T-003-x.md").unlink()
+        (backlog_dir / "board.config.json").unlink()
 
         # run() calls ensure_gitignore — backlog/.gitignore exists with the exact content
         gi_path = backlog_dir / ".gitignore"
