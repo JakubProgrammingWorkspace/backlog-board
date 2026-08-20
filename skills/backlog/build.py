@@ -21,6 +21,7 @@ FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n?", re.DOTALL)
 DEFERRAL_REF_RE = re.compile(r"T-\d{3}")
 SUBTASK_LINE_RE = re.compile(r"^(\s*)-\s*\[([ xX])\]")
 HEADING_RE = re.compile(r"^#{1,6}\s")
+VALID_STATUSES = {"investigate", "todo", "doing", "review", "done"}
 
 
 def parse_frontmatter(text):
@@ -105,6 +106,25 @@ def check_duplicate_ids(epics, tasks):
                 f"— renumber one of them and re-run build.py"
             )
         seen[item_id] = item["_path"]
+
+
+def check_known_status(epics, tasks):
+    """The board only ever renders a task into one of five known status columns
+    (app.js's STATUSES constant) — any other literal value (a typo, a status name
+    from an older skill version like "blocked"/"needs-input", a different plugin's
+    vocabulary like "in-progress") matches none of them and the card vanishes from
+    every column with no error anywhere, on the live board or after a build. Same
+    after-the-fact, named-failure shape as check_duplicate_ids: catch it here so
+    there's a loud, actionable message instead of a task that's silently invisible."""
+    for item in epics + tasks:
+        status = item.get("status", "todo")
+        if status not in VALID_STATUSES:
+            raise SystemExit(
+                f"backlog: {item.get('id', '?')} has status \"{status}\", which the "
+                f"board doesn't recognize and won't render on any column — valid "
+                f"values are {sorted(VALID_STATUSES)}. Fix the `status:` field in "
+                f"{item['_path']} and re-run build.py"
+            )
 
 
 def _subtask_blocks(body):
@@ -250,6 +270,7 @@ def run(backlog_dir: Path):
     epics = load_items(backlog_dir / "epics", "epic")
     tasks = load_items(backlog_dir / "tasks", "task")
     check_duplicate_ids(epics, tasks)
+    check_known_status(epics, tasks)
     if configured_require_deferral_links(backlog_dir):
         check_deferred_subtasks(tasks)
     for e in epics:
@@ -312,6 +333,26 @@ def selftest():
         raise AssertionError("expected SystemExit on duplicate id")
     except SystemExit as exc:
         assert "T-001" in str(exc) and "a" in str(exc) and "b" in str(exc), exc
+
+    # check_known_status: every valid status passes for both epics and tasks
+    check_known_status(
+        [{"id": "E-001", "status": "investigate", "_path": "e"}],
+        [{"id": f"T-{i:03d}", "status": s, "_path": "t"}
+         for i, s in enumerate(sorted(VALID_STATUSES))],
+    )
+    # a status the board can't render (typo, or another plugin's vocabulary) raises,
+    # naming the offending id
+    try:
+        check_known_status([], [{"id": "T-005", "status": "in-progress", "_path": "t"}])
+        raise AssertionError("expected SystemExit on unrecognized status")
+    except SystemExit as exc:
+        assert "T-005" in str(exc) and "in-progress" in str(exc), exc
+    # same check applies to a task-less epic's own explicit status
+    try:
+        check_known_status([{"id": "E-002", "status": "blocked", "_path": "e"}], [])
+        raise AssertionError("expected SystemExit on unrecognized epic status")
+    except SystemExit as exc:
+        assert "E-002" in str(exc) and "blocked" in str(exc), exc
 
     # check_deferred_subtasks: done/review task with a bare unchecked subtask -> raises
     bare = {"id": "T-010", "status": "done", "_path": "a",
