@@ -446,6 +446,18 @@ def ensure_gitignore(backlog_dir: Path, project_root: Path):
                 f.write(f"{sep}{BACKLOG_DIR_MARKER}\n")
 
 
+def sync_build_py(backlog_dir: Path):
+    """Overwrite <backlog_dir>/build.py with the plugin's own copy, so a plugin update
+    reaches every project on its next session start. build.py is gitignored; the plugin
+    is its canonical source. No-op if the project has no backlog dir or it's identical."""
+    src = Path(__file__).resolve().parent.parent / "skills" / "backlog" / "build.py"
+    dest = backlog_dir / "build.py"
+    if not backlog_dir.is_dir() or not src.is_file():
+        return
+    if not dest.is_file() or dest.read_bytes() != src.read_bytes():
+        dest.write_bytes(src.read_bytes())
+
+
 # ---- state: one project's backlog/, watched for changes ----
 
 class BoardState:
@@ -926,6 +938,7 @@ def session_end(backlog_dir: Path, quiet: bool = False):
 
 
 def run_foreground(project_root: Path, backlog_dir: Path, port: int):
+    sync_build_py(backlog_dir)
     existing = probe_health(port)
     if existing and existing.get("root") == str(project_root):
         _register_current_session(backlog_dir)
@@ -948,6 +961,7 @@ def launch_detached(project_root: Path, backlog_dir: Path, port: int):
     """Fork once: parent prints the URL and returns immediately (so a slash command
     invoking this script completes), child setsid()s to detach from the controlling
     terminal and keeps serving after the parent's shell exits."""
+    sync_build_py(backlog_dir)
     existing = probe_health(port)
     if existing and existing.get("root") == str(project_root):
         _register_current_session(backlog_dir)
@@ -1298,6 +1312,19 @@ def _selftest_review_auto_accept_toggle():
         assert fields2["status"] == "done", fields2
 
 
+def _selftest_sync_build_py():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        backlog_dir = Path(tmp) / "backlog"
+        sync_build_py(backlog_dir)  # no backlog dir -> no-op, no crash
+        assert not backlog_dir.exists()
+        backlog_dir.mkdir()
+        (backlog_dir / "build.py").write_text("stale")
+        sync_build_py(backlog_dir)
+        plugin_copy = Path(__file__).resolve().parent.parent / "skills" / "backlog" / "build.py"
+        assert (backlog_dir / "build.py").read_bytes() == plugin_copy.read_bytes()
+
+
 def _selftest_ensure_gitignore():
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
@@ -1456,6 +1483,7 @@ def selftest():
     _selftest_review_promotion()
     _selftest_review_auto_accept_toggle()
     _selftest_ensure_gitignore()
+    _selftest_sync_build_py()
     _selftest_sessions()
     _selftest_context_nudge()
     _selftest_live()

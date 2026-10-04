@@ -61,7 +61,7 @@ python3 backlog/build.py
 ```
 backlog/
   INDEX.md            # generated — one row per task, "next free ID" line — committed
-  build.py            # copied in at init, stdlib only — gitignored, not committed
+  build.py            # copied in at init and re-synced from the plugin on every session start, stdlib only — gitignored, not committed
   ADR.md              # append-only decision log — committed
   board.config.json   # optional, see Configuration reference — gitignored
   .gitignore          # generated — enforces "only .md files committed" below

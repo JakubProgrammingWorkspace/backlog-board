@@ -17,7 +17,8 @@ committing one of those; it's deliberate.
 ```
 backlog/
   INDEX.md            # generated — read this first, it has the next free ID
-  build.py            # run after any write under backlog/ — gitignored, not committed
+  build.py            # run after any write under backlog/ — gitignored, not committed;
+                      #   overwritten from the plugin on every session start, never hand-edit
   ADR.md              # append-only decision log
   board.config.json   # optional — {"port": N, "archive_after_days": N, "archive_enabled": bool,
                       #   "nudge_at_tokens": N, "nudge_every_tokens": N}, gitignored

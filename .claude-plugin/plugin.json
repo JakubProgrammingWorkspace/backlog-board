@@ -1,7 +1,7 @@
 {
   "name": "backlog-board",
   "description": "Markdown-native epic/task/ADR tracker with a live, read-only board server (search, filters, SSE live-reload). No MCP, stdlib-only Python server, no build step.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "author": {
     "name": "Jakub"
   },
