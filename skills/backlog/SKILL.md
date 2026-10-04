@@ -278,20 +278,26 @@ later ADR reversing this default) can clear. Defaults to enabled when unset.
 Both sweeps below run together, in the same pass, on the same schedule (server
 startup, then once per calendar day the server stays up — see "The board"
 above) — promotion runs first, so a task promoted this pass gets `completed:`
-stamped today and can't also archive in that same pass.
+stamped today and can't also be deleted in that same pass.
 
-Done items are **not** deleted or hidden — they stay in `INDEX.md` (and the
-board) indefinitely unless archived. When `tasks/` or `epics/` gets cluttered
-with old done items, run `python3 backlog/build.py --archive`: it moves every
-`status: done` task (and every epic whose derived status is `done`) into a
-`tasks/archive/` or `epics/archive/` subfolder, then rebuilds. Archived items
-are still counted — `INDEX.md` and the board keep listing them — this only
-tidies the directory listing, it isn't a delete. Not automatic on every build:
-a save shouldn't silently move a file out from under whoever's looking at it,
-so run `--archive` on request or when it's visibly gotten noisy, not by default.
+Done items are **deleted, not archived — git history is the archive.** Run
+`python3 backlog/build.py --archive` to delete every `status: done` task (and every
+epic whose derived status is `done`) now, then rebuild. A file is only deleted if it
+is git-tracked and clean (nothing uncommitted would be lost); otherwise it is skipped.
+IDs are never reused: `INDEX.md` is committed and its `next:` line is the counter.
+
+To read a deleted item: `git log --all --diff-filter=D --name-only -- 'backlog/tasks/T-051-*'`
+finds the deleting commit, then `git show <sha>^:backlog/tasks/<file>`. Commit
+messages are the other index (`git log --grep T-051`) — so name the task ID in the
+commit message.
+
+**Never put task or epic IDs in code, comments, docstrings, test names or docs
+prose.** The task file will be deleted, leaving a dead pointer. Write the *why*
+itself in the comment. IDs live in `docs:`/`[[T-xxx]]` links inside the backlog and
+in commit messages, nowhere else.
 
 **The board server does this automatically too, on the same schedule as the
-review sweep above.** It archives `done` items older than a retention window —
+review sweep above.** It deletes `done` items older than a retention window —
 default **3 working days** (weekends excluded from the count), measured from
 `completed:` (an epic with no `completed:`/`updated:` of its own uses the latest
 `completed:` among its tasks, since epic status is derived, not hand-set).
@@ -309,10 +315,9 @@ Turn the whole sweep off per-project with `{ "archive_enabled": false }` in the 
 file — the manual `--archive` above still works, only the automatic startup sweep is
 gated by this flag. Defaults to enabled when unset.
 
-This is a *separate* mechanism from the manual `python3 backlog/build.py --archive`
-above — that one stays immediate and unconditional (an explicit "clean up now"),
-this one is a background policy gated by age. Both move the same items to the
-same `archive/` subfolders; neither deletes anything.
+This is a *separate* trigger from the manual `--archive` above — that one is
+immediate and unconditional, this one is a background policy gated by age. Both
+delete (with the same git-clean guard).
 
 ## Session boundaries
 

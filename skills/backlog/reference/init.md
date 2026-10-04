@@ -75,6 +75,5 @@ items look like real tasks, get a yes, and create task files for those.
 Leave the rest of `docs/` alone — tasks can link to it via the task's
 `docs:` frontmatter field instead of duplicating it. Once nothing's left to
 migrate, mark `E-001` `status: done` and run `python3 backlog/build.py
---archive` to move it (and `T-001`) into `epics/archive/` and
-`tasks/archive/` — that's the epic-completion lifecycle this task exists to
+--archive` to delete it (and `T-001`; git keeps them) — that's the epic-completion lifecycle this task exists to
 demonstrate.

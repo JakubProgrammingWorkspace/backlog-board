@@ -21,6 +21,7 @@ import time
 import fcntl
 import signal
 import socket
+import subprocess
 import argparse
 import threading
 import contextlib
@@ -108,8 +109,7 @@ def checkbox_progress(body):
 
 
 def load_items(dir_path, kind):
-    """rglob, not glob — archived items live one level down in an archive/ subdir but
-    still need to show up on the board."""
+    """rglob so any legacy archive/ subdir is still read until the sweep deletes it."""
     items = []
     if not dir_path.is_dir():
         return items
@@ -127,10 +127,42 @@ def load_items(dir_path, kind):
     return items
 
 
-def next_id(items, prefix):
+def next_id(items, prefix, floor=0):
     nums = [int(m.group(1)) for it in items
             if (m := re.match(rf"{prefix}-(\d+)$", it.get("id", "")))]
-    return f"{prefix}-{(max(nums) + 1) if nums else 1:03d}"
+    return f"{prefix}-{max(nums + [floor]) + 1:03d}"
+
+
+def next_id_floor(backlog_dir: Path, prefix: str) -> int:
+    """Highest id ever issued, read back from the committed INDEX.md `next:` line, so
+    deleting finished items never lets an id be reused."""
+    index = backlog_dir / "INDEX.md"
+    if not index.is_file():
+        return 0
+    m = re.search(rf"^next: .*?\b{prefix}-(\d+)", index.read_text(), re.M)
+    return int(m.group(1)) - 1 if m else 0
+
+
+def git_clean_tracked(path: Path) -> bool:
+    """True only if path is git-tracked with no uncommitted changes — i.e. deleting it
+    loses nothing, since git history still holds the content. Outside a repo: False."""
+    def git(*args):
+        return subprocess.run(["git", "-C", str(path.parent), *args],
+                              capture_output=True, text=True)
+    try:
+        if git("ls-files", "--error-unmatch", path.name).returncode != 0:
+            return False
+        status = git("status", "--porcelain", "--", path.name)
+    except OSError:
+        return False
+    return status.returncode == 0 and not status.stdout.strip()
+
+
+def remove_empty_archive_dirs(backlog_dir: Path):
+    for sub in ("tasks", "epics"):
+        d = backlog_dir / sub / "archive"
+        if d.is_dir() and not any(d.iterdir()):
+            d.rmdir()
 
 
 def derive_epic_status(epic, tasks):
@@ -307,17 +339,17 @@ def _epic_completed_date(epic, own_tasks):
 
 
 def archive_stale_done(backlog_dir: Path, min_age_days: int):
-    """Move status:done tasks/epics older than min_age_days (working days, weekends
-    excluded) into archive/. This is the server's automatic startup sweep — age-gated,
-    unlike build.py's manual --archive (immediate/unconditional, an explicit human
-    "clean up now"). Mirrors build.py's archive() move logic, plus the age check."""
+    """Delete status:done tasks/epics older than min_age_days (working days, weekends
+    excluded). Git history is the archive, so only git-tracked, clean files are removed.
+    This is the server's automatic startup sweep — age-gated, unlike build.py's manual
+    --archive (immediate/unconditional)."""
     epics = load_items(backlog_dir / "epics", "epic")
     tasks = load_items(backlog_dir / "tasks", "task")
     for e in epics:
         e["status"] = derive_epic_status(e, tasks)
     today = date.today()
-    moved = []
-    for item, subdir in [(t, "tasks") for t in tasks] + [(e, "epics") for e in epics]:
+    removed = []
+    for item in tasks + epics:
         if item.get("status") != "done":
             continue
         if item.get("_kind") == "epic":
@@ -328,14 +360,12 @@ def archive_stale_done(backlog_dir: Path, min_age_days: int):
         if completed is None or _business_days_since(completed, today) < min_age_days:
             continue
         src = Path(item["_path"])
-        if src.parent.name == "archive":
+        if not git_clean_tracked(src):
             continue
-        dest_dir = backlog_dir / subdir / "archive"
-        dest_dir.mkdir(exist_ok=True)
-        dest = dest_dir / src.name
-        src.rename(dest)
-        moved.append(dest)
-    return moved
+        src.unlink()
+        removed.append(src)
+    remove_empty_archive_dirs(backlog_dir)
+    return removed
 
 
 def promote_stale_review(backlog_dir: Path, min_age_days: int):
@@ -366,7 +396,7 @@ def promote_stale_review(backlog_dir: Path, min_age_days: int):
 
 def _run_sweeps(backlog_dir: Path):
     """Startup (and daily, see BoardState._maybe_daily_sweep) age-gated writes: promote
-    stale review -> done first, then archive stale done -> archive/, so a task promoted
+    stale review -> done first, then delete stale done, so a task promoted
     this pass can't also archive in the same pass (its completed: is today)."""
     if configured_review_auto_accept(backlog_dir):
         days = configured_review_days(backlog_dir)
@@ -384,7 +414,7 @@ def _run_sweeps(backlog_dir: Path):
         days = DEFAULT_ARCHIVE_AFTER_DAYS
     moved = archive_stale_done(backlog_dir, days)
     if moved:
-        print(f"backlog board: archived {len(moved)} item(s) done for {days}+ day(s)")
+        print(f"backlog board: deleted {len(moved)} item(s) done for {days}+ day(s) (in git history)")
 
 
 GITIGNORE_CONTENT = (
@@ -501,7 +531,8 @@ class BoardState:
             "version": self.version,
             "review_after_days": review_days,
             "review_auto_accept": configured_review_auto_accept(self.backlog_dir),
-            "next": {"task": next_id(tasks, "T"), "epic": next_id(epics, "E")},
+            "next": {"task": next_id(tasks, "T", next_id_floor(self.backlog_dir, "T")),
+                     "epic": next_id(epics, "E", next_id_floor(self.backlog_dir, "E"))},
             "epics": [
                 {"id": e.get("id", ""), "title": e.get("title", ""),
                  "status": e.get("status", "todo"), "created": e.get("created", ""),
@@ -1091,6 +1122,12 @@ def _selftest_business_days_since():
     assert _business_days_since(date(2026, 8, 14), date(2026, 8, 14)) == 0
 
 
+def _git_commit_all(repo: Path):
+    for cmd in (["init", "-q"], ["add", "-A"],
+                ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"]):
+        subprocess.run(["git", "-C", str(repo), *cmd], check=True, capture_output=True)
+
+
 def _selftest_archive_retention():
     import tempfile
     from datetime import timedelta
@@ -1113,26 +1150,34 @@ def _selftest_archive_retention():
         (backlog_dir / "epics" / "E-001-x.md").write_text(
             "---\nid: E-001\ntitle: Test\n---\n"
         )
+        (backlog_dir / "INDEX.md").write_text("next: T-004 · E-002\n")
 
-        moved = {p.name for p in archive_stale_done(backlog_dir, min_age_days=3)}
-        assert moved == {"T-001-old.md"}, moved
-        assert (backlog_dir / "tasks" / "archive" / "T-001-old.md").exists()
+        # outside a git repo nothing is deleted (no history to recover from)
+        assert archive_stale_done(backlog_dir, min_age_days=3) == []
+        assert (backlog_dir / "tasks" / "T-001-old.md").exists()
+
+        _git_commit_all(Path(tmp))
+        removed = {p.name for p in archive_stale_done(backlog_dir, min_age_days=3)}
+        assert removed == {"T-001-old.md"}, removed
+        assert not (backlog_dir / "tasks" / "T-001-old.md").exists()
         assert (backlog_dir / "tasks" / "T-002-recent.md").exists()  # too recent
         assert (backlog_dir / "tasks" / "T-003-nodate.md").exists()  # no date, left alone
-        # epic's effective date = max(children's completed dates) = recent_date (1 day
-        # ago, since T-002 is its newest dated task) -> not old enough yet
-        assert (backlog_dir / "epics" / "E-001-x.md").exists()
+        assert (backlog_dir / "epics" / "E-001-x.md").exists()  # newest child is recent
+        # uncommitted edit -> not deleted
+        recent = backlog_dir / "tasks" / "T-002-recent.md"
+        recent.write_text(f"---\nid: T-002\nepic: E-001\nstatus: done\ncompleted: {old_date}\n---\n")
+        # (the epic is clean and now old enough, so only it goes)
+        assert {p.name for p in archive_stale_done(backlog_dir, min_age_days=3)} == {"E-001-x.md"}
+        assert recent.exists()
 
-        # age out the remaining tasks too -> epic's effective date becomes old_date,
-        # now past the threshold
-        (backlog_dir / "tasks" / "T-002-recent.md").write_text(
-            f"---\nid: T-002\nepic: E-001\nstatus: done\ncompleted: {old_date}\n---\n"
-        )
-        moved2 = {p.name for p in archive_stale_done(backlog_dir, min_age_days=3)}
-        assert moved2 == {"T-002-recent.md", "E-001-x.md"}, moved2
-        assert (backlog_dir / "epics" / "archive" / "E-001-x.md").exists()
-        # re-running is a no-op for already-archived items
+        _git_commit_all(Path(tmp))
+        removed2 = {p.name for p in archive_stale_done(backlog_dir, min_age_days=3)}
+        assert removed2 == {"T-002-recent.md"}, removed2
         assert archive_stale_done(backlog_dir, min_age_days=3) == []
+
+        # deleting T-001/T-002 must not let ids be reused
+        remaining = load_items(backlog_dir / "tasks", "task")
+        assert next_id(remaining, "T", next_id_floor(backlog_dir, "T")) == "T-004"
 
 
 def _selftest_archive_toggle():
@@ -1147,6 +1192,7 @@ def _selftest_archive_toggle():
             f"---\nid: T-001\nepic: E-001\nstatus: done\ncompleted: {old_date}\n---\n"
         )
 
+        _git_commit_all(Path(tmp))
         assert configured_archive_enabled(backlog_dir) is True  # no config file -> default on
 
         (backlog_dir / CONFIG_FILENAME).write_text(json.dumps({"archive_enabled": False}))
@@ -1159,7 +1205,7 @@ def _selftest_archive_toggle():
         )
         assert configured_archive_enabled(backlog_dir) is True
         _run_sweeps(backlog_dir)
-        assert (backlog_dir / "tasks" / "archive" / "T-001-old.md").exists()  # now swept
+        assert not (backlog_dir / "tasks" / "T-001-old.md").exists()  # now swept
 
 
 def _selftest_frontmatter_write():
