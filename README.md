@@ -14,9 +14,12 @@ No MCP server, no database, no frontend build step. Just a Claude Code skill, on
 stdlib-only Python script (`build.py`, copied into each project), and a small
 stdlib-only Python HTTP server that ships with the plugin for the board itself.
 
-![Board](docs/screenshots/board.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/board-dark.png">
+  <img alt="The backlog board showing a demo project" src="docs/screenshots/board.png">
+</picture>
 
-*The board for the demo backlog in [`examples/demo-project`](examples/demo-project).*
+*The board for the demo backlog in [`examples/demo-project`](examples/demo-project), in light and dark themes (the board has a toggle).*
 
 ## Quick start
 
