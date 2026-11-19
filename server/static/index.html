@@ -111,6 +111,15 @@
       </ul>
       <p>Recover a deleted task: <code>git log --all --diff-filter=D --name-only -- 'backlog/tasks/T-051-*'</code>, then <code>git show &lt;sha&gt;^:&lt;path&gt;</code>.</p>
 
+      <h2>Updating the plugin</h2>
+      <ol>
+        <li>In Claude Code run <code>/plugin marketplace update backlog-board</code>, then <code>/plugin update backlog-board</code>. The <code>/plugin</code> menu works too.</li>
+        <li>Restart the session so the hooks and the board server load the new version.</li>
+        <li>On the next session start <code>backlog/build.py</code> is re-synced from the plugin automatically &mdash; nothing to copy by hand.</li>
+        <li>If the board still looks old, run <code>python3 &lt;plugin&gt;/server/serve.py --stop</code> and start the board again.</li>
+        <li>Installed from a local clone? Bump <code>version</code> in <code>.claude-plugin/plugin.json</code> first &mdash; Claude keeps using its cached copy until the version changes.</li>
+      </ol>
+
       <h2>Configuration</h2>
       <p>Optional file <code>backlog/board.config.json</code> (gitignored; commit it if the team should share it). Every key is optional.</p>
       <table>

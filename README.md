@@ -42,6 +42,7 @@ for <your goal>"*. It creates `backlog/`, the epic and the task files, and runs
 - [Install](#install)
 - [Backlog format](#backlog-format)
 - [The board](#the-board)
+- [Updating](#updating)
 - [Session boundaries](#session-boundaries)
 - [Configuration reference](#configuration-reference)
 - [Regenerating INDEX.md](#regenerating-indexmd)
@@ -231,6 +232,18 @@ without starting anything. That warning surfaces through the `SessionStart` hook
 normal Claude Code message, so you'll see it in-session rather than a server silently
 coming up somewhere unexpected. Fix it by freeing the port, or pointing
 `board.config.json`/`--port` at a different one.
+
+## Updating
+
+1. `/plugin marketplace update backlog-board`, then `/plugin update backlog-board`
+   (or use the `/plugin` menu).
+2. Restart the Claude Code session so the hooks and the board server load the new
+   version. If the board still looks old, stop it with `serve.py --stop` and start it
+   again.
+3. `backlog/build.py` in each project is re-synced from the plugin on the next session
+   start; there is nothing to copy by hand.
+4. Installed from a local clone? Bump `version` in `.claude-plugin/plugin.json` first —
+   Claude keeps using its cached copy until the version changes.
 
 ## Session boundaries
 
