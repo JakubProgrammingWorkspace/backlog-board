@@ -1,10 +1,12 @@
 # backlog-board
 
-**Markdown-native epic/task/ADR backlog for projects built with Claude Code, plus a
-live, read-only backlog board.**
+**Keep epics, tasks and decisions as plain Markdown that Claude Code reads and writes
+across sessions, with a live read-only board to see where everything stands.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
+[![CI](https://github.com/JakubProgrammingWorkspace/backlog-board/actions/workflows/ci.yml/badge.svg)](https://github.com/JakubProgrammingWorkspace/backlog-board/actions/workflows/ci.yml)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757.svg)](https://docs.claude.com/en/docs/claude-code/plugins)
 [![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](#design-notes)
 [![No build step](https://img.shields.io/badge/build%20step-none-brightgreen.svg)](#design-notes)
 
@@ -12,8 +14,27 @@ No MCP server, no database, no frontend build step. Just a Claude Code skill, on
 stdlib-only Python script (`build.py`, copied into each project), and a small
 stdlib-only Python HTTP server that ships with the plugin for the board itself.
 
+![Board](docs/screenshots/board.png)
+
+*The board for the demo backlog in [`examples/demo-project`](examples/demo-project).*
+
+## Quick start
+
+```bash
+/plugin marketplace add JakubProgrammingWorkspace/backlog-board
+/plugin install backlog-board@backlog-board
+```
+
+Then, in your project, tell Claude: *"set up a backlog here and add an epic with tasks
+for <your goal>"*. It creates `backlog/`, the epic and the task files, and runs
+`build.py`. Open the board with `/backlog-board:backlog-board` (prints a
+`http://127.0.0.1:3201/` URL). To see a populated board first, run the same command from
+`examples/demo-project/`.
+
 ## Table of contents
 
+- [Quick start](#quick-start)
+- [Example workflow](#example-workflow)
 - [Why](#why)
 - [Install](#install)
 - [Backlog format](#backlog-format)
@@ -23,6 +44,7 @@ stdlib-only Python HTTP server that ships with the plugin for the board itself.
 - [Regenerating INDEX.md](#regenerating-indexmd)
 - [Requirements](#requirements)
 - [Design notes](#design-notes)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## Why
@@ -31,19 +53,58 @@ Agent-driven projects accumulate task state in ad-hoc places: a stale `plan.md`,
 giant hand-maintained "open issues" doc, a wishlist-flavoured `ADR.md` that never
 records real decisions. This gives the agent (and you) one shared, git-committed
 backlog instead: epics and tasks as markdown files with a small frontmatter contract,
-a generated index the agent reads instead of scanning the directory, and a static
-HTML board for a human glance.
+a generated index the agent reads instead of scanning the directory, and a live
+board for a human glance.
 
 Deliberately not an MCP server — MCP tool schemas cost context on every turn whether
 used or not. This is a skill: zero cost until triggered. The board server is a plain
-local HTTP server started on request (`/backlog-board`), not an always-on daemon, and
-it never accepts writes — tasks stay something Claude (or you) edit as files, never
+local HTTP server started by the `SessionStart` hook or on request
+(`/backlog-board:backlog-board`), not an always-on daemon, and it never accepts writes — tasks stay something Claude (or you) edit as files, never
 something a UI mutates.
+
+## Example workflow
+
+How a piece of work flows across sessions. There is no dependency field: an
+unfinished prerequisite is expressed with the `investigate` status plus a note naming it
+(the status is defined as "something concrete and external is stopping otherwise-understood
+work, e.g. another task"). The full backlog is in [`examples/demo-project`](examples/demo-project).
+
+1. **Create the epic and tasks.** You ask Claude for a plan; it writes
+   `backlog/epics/E-001-habit-tracker-cli.md` and one file per task, then runs
+   `build.py`, which regenerates `INDEX.md`. A task looks like:
+
+   ```markdown
+   ---
+   id: T-002
+   title: Implement `habit add` and `habit done`
+   epic: E-001
+   status: investigate     # waiting on T-001
+   priority: P1
+   ---
+   ## Context
+   Blocked by T-001: the commands need `load()` / `save()`.
+   ## Subtasks
+   - [ ] `habit add <name>` creates a habit
+   ```
+
+2. **A session picks work.** Claude reads `INDEX.md`, takes a `todo` task, sets it
+   `doing` (stamping `session_id:`), and works through the `## Subtasks`.
+3. **It finishes.** Claude sets `review` (never `done` — that is the human's word),
+   runs `build.py`, and offers a fresh session with a paste-ready `work T-0xx` line.
+4. **You accept.** You set `status: done` and `completed:`, or leave it: after
+   `review_after_days` of silence the board server promotes it to `done` itself.
+5. **The blocker clears.** The next session moves T-002 from `investigate` to `todo`
+   and picks it up. If a session stops mid-task, `/backlog-board:backlog-handoff` writes a
+   continuation task so the next one starts cold with everything it needs.
+6. **Housekeeping.** `done` items are deleted after `archive_after_days` (default 7
+   working days) and the deletion is committed; git history keeps them.
 
 ## Install
 
 ```bash
-/plugin marketplace add ~/workspace/backlog-board   # or wherever you cloned it
+/plugin marketplace add JakubProgrammingWorkspace/backlog-board
+# or, from a local clone:
+/plugin marketplace add ~/workspace/backlog-board
 /plugin install backlog-board@backlog-board
 ```
 
@@ -87,7 +148,7 @@ epics, tasks, and ADR entries. Task status is one of:
 | Status | Meaning |
 |---|---|
 | `investigate` | Not yet actionable — scope depends on a decision, an investigation, a websearch, or something concrete and external is stopping otherwise-understood work (another task, a missing credential, a vendor fix). |
-| `todo` | Understood and ready to pick up, just not started. |
+| `todo` | Understood and ready to pick up, just not started. `inprogress` is accepted as an alias and treated exactly like `todo`. |
 | `doing` | Actively being worked. |
 | `review` | The agent believes the work is finished; awaiting human acceptance. Auto-promotes to `done` after an idle window unless a human accepts (or rejects) it first. |
 | `done` | A human has looked at the work and accepted it. |
@@ -115,7 +176,7 @@ as the port option below (flag > config file > default).
 ## The board
 
 ```
-/backlog-board
+/backlog-board:backlog-board
 ```
 
 Starts (or reuses, if already running for this project) the plugin's board server and
@@ -148,7 +209,7 @@ no `node_modules`.
   `next:` line is the counter. Manual `build.py --archive` does the same, immediately.
 - **Starts and stops with Claude Code** — the plugin installs both hooks, so there's
   nothing to wire up per project and nothing to remember. `SessionStart` runs
-  `serve.py`; `SessionEnd` runs `serve.py --session-end`, which stops the server
+  `serve.py` (which also re-syncs `backlog/build.py` from the plugin); `SessionEnd` runs `serve.py --session-end`, which stops the server
   **only when the session leaving was the last one**. One board server is shared
   across every Claude session and terminal tab open on the same project, so each
   start registers its `CLAUDE_PID` in `backlog/.board-sessions` and each exit removes
@@ -177,7 +238,7 @@ session — full detail in "Session boundaries" in `skills/backlog/SKILL.md`.
   `work T-0xx` line for you to run after `/clear`), delegate the next task to a
   subagent (whose entire prompt is that task's file — no context re-explained), or
   keep going. Nothing here starts or clears a session itself; only you can.
-- **`/backlog-handoff`** — for stopping mid-task rather than finishing one: writes a
+- **`/backlog-board:backlog-handoff`** — for stopping mid-task rather than finishing one: writes a
   self-contained continuation task (state reached, `path:line`s, verify command,
   what's left) and prints the resume line.
 - **Wide investigations** — before a broad read-only dig (multi-file grep, "what
@@ -226,7 +287,8 @@ it yourself if the team should share settings):
 ## Regenerating INDEX.md
 
 ```bash
-python3 backlog/build.py             # rebuild INDEX.md
+python3 backlog/build.py             # rebuild INDEX.md (validates ids, statuses, deferral gate)
+python3 backlog/build.py --archive   # delete every done item now, then rebuild
 python3 backlog/build.py --selftest  # run the inline self-checks
 ```
 
@@ -241,7 +303,7 @@ python3 backlog/build.py --selftest  # run the inline self-checks
 
 ## Design notes
 
-- Frontmatter parsing is a 12-line hand-rolled scalar parser, not YAML — every field
+- Frontmatter parsing is a small (~15-line) hand-rolled scalar parser, not YAML — every field
   in this format is a plain string, so a full parser would be dead dependency weight.
 - Epic status is derived from its tasks, never set by hand, so it can't drift.
 - The board server is plugin-only, never copied into the project (unlike `build.py`) —
@@ -253,6 +315,18 @@ python3 backlog/build.py --selftest  # run the inline self-checks
   https://github.com/markedjs/marked) — renders task/epic/ADR markdown bodies,
   including tables, in the drawer and ADR tab. Not npm `node_modules`-managed on
   purpose: it's a single static asset served alongside the rest of `server/static/`.
+
+## Use in a real project
+
+I built this to manage AI-agent work in a larger private project where tasks span many
+Claude Code sessions. That is where the one-task-per-session rule, the `review` gate
+and the handoff command came from.
+
+## Contributing
+
+Issues and pull requests are welcome. Run the checks locally with
+`pip install pytest ruff`, then `python -m pytest` and `ruff check .`; CI runs the same
+on Python 3.8 and 3.12. Keep it standard library only.
 
 ## License
 
