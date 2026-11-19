@@ -114,3 +114,30 @@ def test_archive_deletes_only_clean_tracked_done(build, backlog, put, git_repo):
     removed = build.archive(backlog, epics, tasks)
     assert [p.name for p in removed] == ["T-001-a.md"]
     assert (backlog / "tasks" / "T-002-b.md").exists()
+
+
+@pytest.mark.parametrize("digits", [1, 3, 4, 7])
+def test_ids_work_for_any_digit_count(build, backlog, put, digits):
+    n = 10 ** (digits - 1)  # 1, 100, 1000, 1000000
+    tid, other = f"T-{n}", f"T-{n + 1}"
+    assert build.next_id([{"id": tid}], "T") == f"T-{n + 1:03d}"
+
+    # deferral gate: reference matches the whole id, not a 3-digit prefix of it
+    def task(i, status, body=""):
+        return {"id": i, "status": status, "_path": f"{i}.md", "_body": body}
+
+    build.check_deferred_subtasks([task(tid, "done", f"- [ ] later, see {other}\n"), task(other, "todo")])
+    with pytest.raises(SystemExit):  # T-100 must not be satisfied by a reference to T-1000
+        build.check_deferred_subtasks([task("T-5", "done", f"- [ ] see T-{n}0\n"), task(tid, "todo")])
+
+
+def test_index_sorts_numerically(build, backlog, put):
+    ids = [9, 10, 101, 1000, 1000000]
+    for i in reversed(ids):
+        put(backlog, "tasks", f"T-{i}-x.md", id=f"T-{i}", title="t", epic="E-001", status="todo")
+    put(backlog, "epics", "E-001-x.md", id="E-001", title="X")
+    build.run(backlog)
+    rows = [ln.split("|")[1].strip() for ln in (backlog / "INDEX.md").read_text().splitlines()
+            if ln.startswith("| T-")]
+    assert rows == [f"T-{i}" for i in ids]
+    assert "next: T-1000001" in (backlog / "INDEX.md").read_text()

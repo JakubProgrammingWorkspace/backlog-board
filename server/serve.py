@@ -108,6 +108,12 @@ def checkbox_progress(body):
     return done, len(boxes)
 
 
+def _id_key(item_id):
+    """Sort key putting T-9 < T-10 < T-1000: numeric, however many digits."""
+    m = re.match(r"([A-Za-z]+)-(\d+)$", item_id or "")
+    return (m.group(1), int(m.group(2)), item_id) if m else (item_id or "", 0, item_id or "")
+
+
 def load_items(dir_path, kind):
     """rglob so any legacy archive/ subdir is still read until the sweep deletes it."""
     items = []
@@ -126,7 +132,7 @@ def load_items(dir_path, kind):
         fields["_total"] = total
         fields["_kind"] = kind
         items.append(fields)
-    return items
+    return sorted(items, key=lambda i: _id_key(i["id"]))
 
 
 def next_id(items, prefix, floor=0):

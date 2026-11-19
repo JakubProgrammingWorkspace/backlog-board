@@ -102,3 +102,11 @@ def test_inline_selftests_still_pass():
         r = subprocess.run(["python3", str(root / script), "--selftest"],
                            capture_output=True, text=True)
         assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_load_items_sorted_numerically_and_next_id_wide(serve, backlog, put):
+    for i in (1000000, 9, 1000, 10):
+        put(backlog, "tasks", f"T-{i}-x.md", id=f"T-{i}", status="todo")
+    items = serve.load_items(backlog / "tasks", "task")
+    assert [t["id"] for t in items] == ["T-9", "T-10", "T-1000", "T-1000000"]
+    assert serve.next_id(items, "T") == "T-1000001"

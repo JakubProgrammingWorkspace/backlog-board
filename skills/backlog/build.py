@@ -19,7 +19,7 @@ from pathlib import Path
 
 CHECKBOX_RE = re.compile(r"^\s*-\s*\[([ xX])\]", re.MULTILINE)
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n?", re.DOTALL)
-DEFERRAL_REF_RE = re.compile(r"T-\d{3}")
+DEFERRAL_REF_RE = re.compile(r"\bT-\d+\b")
 SUBTASK_LINE_RE = re.compile(r"^(\s*)-\s*\[([ xX])\]")
 HEADING_RE = re.compile(r"^#{1,6}\s")
 VALID_STATUSES = {"investigate", "todo", "doing", "review", "done", "inprogress"}  # inprogress -> todo in load_items
@@ -47,6 +47,12 @@ def checkbox_progress(body):
     return done, len(boxes)
 
 
+def _id_key(item_id):
+    """Sort key putting T-9 < T-10 < T-1000: numeric, however many digits."""
+    m = re.match(r"([A-Za-z]+)-(\d+)$", item_id or "")
+    return (m.group(1), int(m.group(2)), item_id) if m else (item_id or "", 0, item_id or "")
+
+
 def load_items(dir_path, kind):
     """rglob so any legacy archive/ subdir is still read until the sweep deletes it."""
     items = []
@@ -65,7 +71,7 @@ def load_items(dir_path, kind):
         fields["_kind"] = kind
         fields["_body"] = body
         items.append(fields)
-    return items
+    return sorted(items, key=lambda i: _id_key(i["id"]))
 
 
 def _read_config(backlog_dir: Path) -> dict:
@@ -243,7 +249,7 @@ def build_index(epics, tasks, backlog_dir: Path):
              f"{next_id(epics, 'E', next_id_floor(backlog_dir, 'E'))}", ""]
     lines += ["| ID | Title | Epic | Status | Pri | Done |",
               "|---|---|---|---|---|---|"]
-    for t in sorted(tasks, key=lambda t: t.get("id", "")):
+    for t in sorted(tasks, key=lambda t: _id_key(t.get("id", ""))):
         done, total = t["_done"], t["_total"]
         progress = f"{done}/{total}" if total else "—"
         lines.append(
