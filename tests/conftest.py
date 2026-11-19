@@ -55,5 +55,5 @@ def git_repo(tmp_path, monkeypatch):
         return subprocess.run(["git", "-C", str(tmp_path), *args], check=True,
                               capture_output=True, text=True).stdout.strip()
 
-    git("init", "-q")
+    git("init", "-q", "-b", "main")
     return git

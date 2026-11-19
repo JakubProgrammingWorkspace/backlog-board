@@ -123,3 +123,69 @@ def test_refresh_index_rebuilds_and_reports_errors(serve, backlog, put, capsys):
     put(backlog, "tasks", "T-k7f2m-b.md", id="T-k7f2m", title="dup", epic="E-001", status="todo")
     serve.refresh_index(backlog)
     assert "duplicate id" in capsys.readouterr().out
+
+
+def _setup_old_done(put, backlog, git_repo):
+    put(backlog, "tasks", "T-001-old.md", id="T-001", status="done", completed=_old())
+    git_repo("add", "-A")
+    git_repo("commit", "-qm", "init")
+
+
+def test_sweep_skipped_on_feature_branch_by_default(serve, backlog, put, git_repo):
+    _setup_old_done(put, backlog, git_repo)
+    git_repo("checkout", "-qb", "feature")
+    serve._run_sweeps(backlog)
+    assert (backlog / "tasks/T-001-old.md").exists()
+    assert git_repo("log", "-1", "--format=%s") == "init"
+
+
+def test_branch_allow_list_in_config(serve, backlog, put, git_repo):
+    _setup_old_done(put, backlog, git_repo)
+    git_repo("checkout", "-qb", "feature")
+    (backlog / "board.config.json").write_text('{"auto_commit_branches": ["feature"]}')
+    serve._run_sweeps(backlog)
+    assert not (backlog / "tasks/T-001-old.md").exists()
+    assert git_repo("log", "-1", "--format=%s").startswith("Backlog tasks update")
+
+
+def test_wildcard_allows_any_branch(serve, backlog, put, git_repo):
+    _setup_old_done(put, backlog, git_repo)
+    git_repo("checkout", "-qb", "whatever")
+    (backlog / "board.config.json").write_text('{"auto_commit_branches": "*"}')
+    serve._run_sweeps(backlog)
+    assert not (backlog / "tasks/T-001-old.md").exists()
+
+
+def test_sweep_skipped_mid_rebase_and_detached_head(serve, backlog, put, git_repo, tmp_path):
+    _setup_old_done(put, backlog, git_repo)
+    (tmp_path / ".git" / "rebase-merge").mkdir()  # what git leaves during a rebase
+    serve._run_sweeps(backlog)
+    assert (backlog / "tasks/T-001-old.md").exists()
+    (tmp_path / ".git" / "rebase-merge").rmdir()
+
+    git_repo("checkout", "-q", "--detach")
+    serve._run_sweeps(backlog)
+    assert (backlog / "tasks/T-001-old.md").exists()
+
+
+def test_review_promotion_also_paused_mid_merge(serve, backlog, put, git_repo, tmp_path):
+    put(backlog, "tasks", "T-001-r.md", id="T-001", status="review", updated=_old(10))
+    git_repo("add", "-A")
+    git_repo("commit", "-qm", "init")
+    (tmp_path / ".git" / "MERGE_HEAD").write_text("deadbeef\n")
+    serve._run_sweeps(backlog)
+    assert serve.load_items(backlog / "tasks", "task")[0]["status"] == "review"
+
+
+def test_commit_failure_is_reported(serve, backlog, put, git_repo, monkeypatch, capsys):
+    _setup_old_done(put, backlog, git_repo)
+    for k in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(k)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "user.useConfigOnly")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
+    serve._run_sweeps(backlog)
+    out = capsys.readouterr().out
+    assert "WARNING" in out and "could not be committed" in out

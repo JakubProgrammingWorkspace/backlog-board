@@ -113,6 +113,14 @@
       </ul>
       <p>Recover a deleted task: <code>git log --all --diff-filter=D --name-only -- 'backlog/tasks/T-051-*'</code>, then <code>git show &lt;sha&gt;^:&lt;path&gt;</code>.</p>
 
+      <h2>Working in a team</h2>
+      <ul>
+        <li>IDs are random and <code>INDEX.md</code> is gitignored, so concurrent work doesn&rsquo;t clash.</li>
+        <li>Cleanup only runs on <code>main</code>/<code>master</code> (see <code>auto_commit_branches</code>) and never mid rebase or merge. A failed cleanup commit prints a warning at session start.</li>
+        <li>Review auto-accept runs on every machine, so set <code>"review_auto_accept": false</code> if several people review.</li>
+        <li><code>board.config.json</code> is gitignored; share it with <code>git add -f</code>. Task status is per branch; there is no assignee field.</li>
+      </ul>
+
       <h2>Updating the plugin</h2>
       <ol>
         <li>In Claude Code run <code>/plugin marketplace update backlog-board</code>, then <code>/plugin update backlog-board</code>. The <code>/plugin</code> menu works too.</li>
@@ -131,6 +139,7 @@
         <tr><td><code>review_after_days</code></td><td>1</td><td>Working days before a silent <code>review</code> task auto-promotes to <code>done</code>.</td></tr>
         <tr><td><code>review_auto_accept</code></td><td>true</td><td><code>false</code> makes <code>review</code> a human-only gate.</td></tr>
         <tr><td><code>archive_after_days</code></td><td>7</td><td>Working days (weekends excluded) after <code>completed:</code> before a <code>done</code> item is deleted.</td></tr>
+        <tr><td><code>auto_commit_branches</code></td><td>["main","master"]</td><td>Branches where the cleanup runs (delete + commit). <code>"*"</code> allows any. Never runs mid rebase/merge or on a detached HEAD.</td></tr>
         <tr><td><code>archive_enabled</code></td><td>true</td><td><code>false</code> turns off the automatic deletion.</td></tr>
         <tr><td><code>auto_commit</code></td><td>true</td><td><code>false</code> deletes without committing.</td></tr>
         <tr><td><code>nudge_at_tokens</code></td><td>120000</td><td>Context size where the wrap-up nudge starts.</td></tr>
@@ -144,6 +153,7 @@
   "archive_after_days": 7,
   "archive_enabled": true,
   "auto_commit": true,
+  "auto_commit_branches": ["main", "master"],
   "nudge_at_tokens": 120000,
   "nudge_every_tokens": 25000,
   "require_deferral_links": false

@@ -42,6 +42,7 @@ for <your goal>"*. It creates `backlog/`, the epic and the task files, and runs
 - [Install](#install)
 - [Backlog format](#backlog-format)
 - [The board](#the-board)
+- [Working in a team](#working-in-a-team)
 - [Updating](#updating)
 - [Session boundaries](#session-boundaries)
 - [Configuration reference](#configuration-reference)
@@ -241,6 +242,20 @@ normal Claude Code message, so you'll see it in-session rather than a server sil
 coming up somewhere unexpected. Fix it by freeing the port, or pointing
 `board.config.json`/`--port` at a different one.
 
+## Working in a team
+
+- **IDs** are random, so people and branches can add tasks concurrently without clashing,
+  and `INDEX.md` is gitignored, so it never conflicts.
+- **Retention** (deleting old `done` items and committing that) runs only on `main` and
+  `master` by default (`auto_commit_branches`), and never mid rebase/merge/cherry-pick or
+  on a detached `HEAD`. If a cleanup commit fails, the board warns at session start.
+- **Review auto-accept** runs on every machine, so one person's board can promote a task
+  another person is still reviewing. Teams should set `"review_auto_accept": false`.
+- **Shared settings:** `board.config.json` is gitignored, so each person has their own.
+  Commit it with `git add -f backlog/board.config.json` if the team should share it.
+- A task's `status` lives in its file, so it is per branch; the board shows what is
+  checked out. There is no assignee field.
+
 ## Updating
 
 1. `/plugin marketplace update backlog-board`, then `/plugin update backlog-board`
@@ -292,6 +307,7 @@ it yourself if the team should share settings):
 | `review_auto_accept` | `true` | Turns the automatic review-acceptance sweep off — `review` becomes a hard human-only gate. |
 | `auto_commit` | `true` | After the sweep deletes items, commit just those deletions as `Backlog tasks update <YYYY-MM-DD>`. |
 | `archive_after_days` | `7` | Age in working days (from `completed:`, weekends excluded) after which the startup sweep deletes a `done` item (recoverable from git). |
+| `auto_commit_branches` | `["main", "master"]` | Branches on which the retention sweep (delete + commit) runs. A string names one branch; `"*"` allows any. On other branches nothing is deleted, so cleanup commits don't litter feature branches. |
 | `archive_enabled` | `true` | Turns the automatic startup sweep off. Manual `build.py --archive` still works either way. |
 | `nudge_at_tokens` | `120000` | Context size (real token count) at which the session-boundary nudge starts firing. |
 | `nudge_every_tokens` | `25000` | How much further context has to grow before the nudge fires again. |
@@ -304,6 +320,8 @@ it yourself if the team should share settings):
   "review_auto_accept": true,
   "archive_after_days": 7,
   "archive_enabled": true,
+  "auto_commit": true,
+  "auto_commit_branches": ["main", "master"],
   "nudge_at_tokens": 120000,
   "nudge_every_tokens": 25000,
   "require_deferral_links": false

@@ -159,9 +159,10 @@ def git_clean_tracked(path: Path) -> bool:
 
 def commit_sweep(backlog_dir: Path, paths):
     """Commit the files the sweep just deleted (pathspec-limited, so any other staged
-    work is untouched). Silent no-op outside git or on any git failure."""
+    work is untouched). Returns "" on success, else git's error text so the caller can
+    warn — the deletions are then left uncommitted in the working tree."""
     if not paths:
-        return
+        return ""
     cwd = str(backlog_dir)
     names = [str(p) for p in paths]
     msg = f"Backlog tasks update {date.today().isoformat()}"
@@ -170,8 +171,44 @@ def commit_sweep(backlog_dir: Path, paths):
                        capture_output=True, text=True, check=True)
         subprocess.run(["git", "-C", cwd, "commit", "-m", msg, "--", *names],
                        capture_output=True, text=True, check=True)
-    except (OSError, subprocess.CalledProcessError):
-        pass
+    except subprocess.CalledProcessError as e:
+        return (e.stderr or e.stdout or "git failed").strip()
+    except OSError as e:
+        return str(e)
+    return ""
+
+
+GIT_BUSY_MARKERS = ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD",
+                    "REVERT_HEAD", "BISECT_LOG")
+
+
+def git_context(backlog_dir: Path):
+    """(branch, busy) for the repo holding backlog_dir. branch is None outside git or on a
+    detached HEAD; busy is True mid rebase/merge/cherry-pick/revert/bisect, when writing
+    or committing backlog files would tangle with the operation."""
+    def git(*args):
+        return subprocess.run(["git", "-C", str(backlog_dir), *args],
+                              capture_output=True, text=True, check=False)
+    try:
+        gd = git("rev-parse", "--absolute-git-dir")
+        if gd.returncode != 0:
+            return None, False
+        branch = git("symbolic-ref", "-q", "--short", "HEAD")
+    except OSError:
+        return None, False
+    busy = any((Path(gd.stdout.strip()) / m).exists() for m in GIT_BUSY_MARKERS)
+    detached = branch.returncode != 0
+    return (None if detached else branch.stdout.strip()), busy or detached
+
+
+def configured_auto_commit_branches(backlog_dir: Path):
+    """{"auto_commit_branches": ["main", "master"]}: the retention sweep (delete + commit)
+    only runs on these branches, so cleanup commits don't litter feature branches. A
+    string is accepted for one branch; "*" allows any branch."""
+    v = _read_config(backlog_dir).get("auto_commit_branches")
+    if v is None:
+        return ["main", "master"]
+    return [v] if isinstance(v, str) else [str(x) for x in v]
 
 
 def configured_auto_commit(backlog_dir: Path) -> bool:
@@ -419,7 +456,12 @@ def promote_stale_review(backlog_dir: Path, min_age_days: int):
 def _run_sweeps(backlog_dir: Path):
     """Startup (and daily, see BoardState._maybe_daily_sweep) age-gated writes: promote
     stale review -> done first, then delete stale done, so a task promoted
-    this pass can't also archive in the same pass (its completed: is today)."""
+    this pass can't also archive in the same pass (its completed: is today).
+    Does nothing mid rebase/merge or on a detached HEAD (it would tangle with the
+    operation); resumes at the next session start."""
+    branch, busy = git_context(backlog_dir)
+    if busy:
+        return
     if configured_review_auto_accept(backlog_dir):
         days = configured_review_days(backlog_dir)
         if days is None:
@@ -431,6 +473,9 @@ def _run_sweeps(backlog_dir: Path):
 
     if not configured_archive_enabled(backlog_dir):
         return
+    allowed = configured_auto_commit_branches(backlog_dir)
+    if branch is not None and "*" not in allowed and branch not in allowed:
+        return  # retention only runs on the configured branches (default main/master)
     days = configured_archive_days(backlog_dir)
     if days is None:
         days = DEFAULT_ARCHIVE_AFTER_DAYS
@@ -438,7 +483,10 @@ def _run_sweeps(backlog_dir: Path):
     if removed:
         print(f"backlog board: deleted {len(removed)} item(s) done for {days}+ day(s) (in git history)")
         if configured_auto_commit(backlog_dir):
-            commit_sweep(backlog_dir, removed)
+            err = commit_sweep(backlog_dir, removed)
+            if err:
+                print(f"backlog board: WARNING — deleted files could not be committed "
+                      f"({err}); they are deleted in your working tree, commit them yourself")
 
 
 GITIGNORE_CONTENT = (
@@ -1175,7 +1223,7 @@ def _selftest_business_days_since():
 
 
 def _git_commit_all(repo: Path):
-    for cmd in (["init", "-q"], ["add", "-A"],
+    for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
                 ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"]):
         subprocess.run(["git", "-C", str(repo), *cmd], check=True, capture_output=True)
 

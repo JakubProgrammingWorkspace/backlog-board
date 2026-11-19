@@ -21,7 +21,7 @@ backlog/
                       #   overwritten from the plugin on every session start, never hand-edit
   ADR.md              # append-only decision log
   board.config.json   # optional — {"port": N, "archive_after_days": N,
-                      #   "auto_commit": bool, "archive_enabled": bool,
+                      #   "auto_commit": bool, "auto_commit_branches": [..], "archive_enabled": bool,
                       #   "nudge_at_tokens": N, "nudge_every_tokens": N}, gitignored
   .gitignore          # generated — enforces the only-.md policy above
   .board              # gitignored, written by the running board server (pid, port)
