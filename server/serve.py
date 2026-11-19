@@ -1202,6 +1202,22 @@ def _selftest_archive_retention():
 
 def _selftest_commit_sweep_and_inprogress():
     import tempfile
+    # commit_sweep uses the ambient git identity (none on CI runners): supply one
+    ident = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    saved = {k: os.environ.get(k) for k in ident}
+    os.environ.update(ident)
+    try:
+        _selftest_commit_sweep_body(tempfile)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def _selftest_commit_sweep_body(tempfile):
     with tempfile.TemporaryDirectory() as tmp:
         backlog_dir = Path(tmp) / "backlog"
         T = backlog_dir / "tasks"
