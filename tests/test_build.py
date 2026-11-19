@@ -12,13 +12,6 @@ def test_parse_frontmatter_missing(build):
     assert build.parse_frontmatter("just text")[0] == {}
 
 
-def test_next_id_uses_floor(build):
-    items = [{"id": "T-002"}, {"id": "T-007"}]
-    assert build.next_id(items, "T") == "T-008"
-    assert build.next_id([], "T") == "T-001"
-    assert build.next_id(items, "T", floor=12) == "T-013"  # deleted ids never reused
-
-
 def test_duplicate_ids_fail(build):
     a = {"id": "T-001", "_path": "a.md"}
     b = {"id": "T-001", "_path": "b.md"}
@@ -93,7 +86,7 @@ def test_index_generation(build, backlog, put):
                   status="todo", priority="P2")
     build.run(backlog)
     index = (backlog / "INDEX.md").read_text()
-    assert "next: T-003 · E-002" in index
+    assert "next:" not in index
     assert "| T-001 | First | E-001 | doing | P1 | 1/2 |" in index
     assert "| T-002 | Second | E-001 | todo | P2 |" in index
 
@@ -120,7 +113,6 @@ def test_archive_deletes_only_clean_tracked_done(build, backlog, put, git_repo):
 def test_ids_work_for_any_digit_count(build, backlog, put, digits):
     n = 10 ** (digits - 1)  # 1, 100, 1000, 1000000
     tid, other = f"T-{n}", f"T-{n + 1}"
-    assert build.next_id([{"id": tid}], "T") == f"T-{n + 1:03d}"
 
     # deferral gate: reference matches the whole id, not a 3-digit prefix of it
     def task(i, status, body=""):
@@ -140,4 +132,54 @@ def test_index_sorts_numerically(build, backlog, put):
     rows = [ln.split("|")[1].strip() for ln in (backlog / "INDEX.md").read_text().splitlines()
             if ln.startswith("| T-")]
     assert rows == [f"T-{i}" for i in ids]
-    assert "next: T-1000001" in (backlog / "INDEX.md").read_text()
+
+
+def test_new_id_format_and_uniqueness(build):
+    import re
+    ids = {build.new_id([], "T") for _ in range(200)}
+    assert len(ids) == 200  # no collisions in a small sample
+    assert all(re.fullmatch(r"T-[23456789bcdfghjkmnpqrstvwxz]{5}", i) for i in ids)
+    assert build.new_id([], "E").startswith("E-")
+
+
+def test_new_id_retries_on_clash(build):
+    class Rng:  # first candidate collides with an existing id, second is free
+        def __init__(self):
+            self.seq = iter("22222" + "33333")
+
+        def choice(self, _alphabet):
+            return next(self.seq)
+
+    assert build.new_id([{"id": "T-22222"}], "T", rng=Rng()) == "T-33333"
+
+
+def test_mixed_legacy_and_random_ids_sort_by_created(build, backlog, put):
+    put(backlog, "epics", "E-001-x.md", id="E-001", title="X")
+    put(backlog, "tasks", "T-400-a.md", id="T-400", title="legacy", epic="E-001",
+        status="todo", created="2026-11-01")
+    put(backlog, "tasks", "T-k7f2m-b.md", id="T-k7f2m", title="newer", epic="E-001",
+        status="todo", created="2026-11-19T22:10:03")
+    put(backlog, "tasks", "T-bbbbb-c.md", id="T-bbbbb", title="newest", epic="E-001",
+        status="todo", created="2026-11-19T23:00:00")
+    build.run(backlog)
+    rows = [ln.split("|")[1].strip() for ln in (backlog / "INDEX.md").read_text().splitlines()
+            if ln.startswith("| T-")]
+    assert rows == ["T-400", "T-k7f2m", "T-bbbbb"]
+
+
+def test_deferral_gate_with_random_ids(build):
+    def task(i, status, body=""):
+        return {"id": i, "status": status, "_path": f"{i}.md", "_body": body}
+
+    build.check_deferred_subtasks([task("T-k7f2m", "done", "- [ ] later, see T-bbbbb\n"), task("T-bbbbb", "todo")])
+    with pytest.raises(SystemExit):
+        build.check_deferred_subtasks([task("T-k7f2m", "done", "- [ ] later, see T-zzzzz\n")])
+
+
+def test_new_cli_prints_id_and_created(build, backlog, capsys):
+    build.run_new(backlog, ["task"])
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("id: T-") and lines[1].startswith("created: 20")
+    assert "T" in lines[1]  # ISO datetime
+    with pytest.raises(SystemExit, match="usage"):
+        build.run_new(backlog, ["bogus"])

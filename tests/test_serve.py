@@ -80,11 +80,6 @@ def test_retention_respects_config(serve, backlog, put, git_repo):
     assert git_repo("log", "-1", "--format=%s") == "init"  # auto_commit off -> no commit
 
 
-def test_ids_not_reused_after_delete(serve, backlog):
-    (backlog / "INDEX.md").write_text("next: T-004 · E-002\n")
-    assert serve.next_id([], "T", serve.next_id_floor(backlog, "T")) == "T-004"
-
-
 def test_review_auto_accept_promotes_stale_review(serve, backlog, put):
     put(backlog, "tasks", "T-001-a.md", id="T-001", status="review", updated=_old(10))
     put(backlog, "tasks", "T-002-b.md", id="T-002", status="review",
@@ -104,9 +99,14 @@ def test_inline_selftests_still_pass():
         assert r.returncode == 0, r.stdout + r.stderr
 
 
-def test_load_items_sorted_numerically_and_next_id_wide(serve, backlog, put):
+def test_load_items_sorted_numerically(serve, backlog, put):
     for i in (1000000, 9, 1000, 10):
         put(backlog, "tasks", f"T-{i}-x.md", id=f"T-{i}", status="todo")
     items = serve.load_items(backlog / "tasks", "task")
     assert [t["id"] for t in items] == ["T-9", "T-10", "T-1000", "T-1000000"]
-    assert serve.next_id(items, "T") == "T-1000001"
+
+
+def test_sort_key_parity(build, serve):
+    items = [{"id": "T-9"}, {"id": "T-1000"}, {"id": "T-k7f2m", "created": "2026-11-19T22:10"},
+             {"id": "T-10", "created": "2026-11-19"}]
+    assert sorted(items, key=build._sort_key) == sorted(items, key=serve._sort_key)

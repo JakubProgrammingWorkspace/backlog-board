@@ -49,8 +49,8 @@ cp "$CLAUDE_PLUGIN_ROOT/skills/backlog/reference/seed/T-001-migrate-existing-pla
 
 Replace the `YYYY-MM-DD` placeholders in both with today's date before
 running the build. If `backlog/` already has an `E-001`/`T-001` (re-running
-init on an already-bootstrapped project), pick the next free IDs from
-`INDEX.md` instead of overwriting.
+init on an already-bootstrapped project), get fresh IDs with
+`python3 backlog/build.py --new task|epic` instead of overwriting.
 
 And generate the initial `INDEX.md`:
 

@@ -6,7 +6,7 @@
 ---
 id: E-002
 title: Import pipeline hardening
-created: 2026-08-11
+created: 2026-08-11T09:30:00   # from `build.py --new epic`
 updated: 2026-08-11
 ---
 

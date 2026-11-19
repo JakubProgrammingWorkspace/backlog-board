@@ -125,7 +125,7 @@ python3 backlog/build.py
 
 ```
 backlog/
-  INDEX.md            # generated — one row per task, "next free ID" line — committed
+  INDEX.md            # generated — one row per task, in creation order — committed
   build.py            # copied in at init and re-synced from the plugin on every session start, stdlib only — gitignored, not committed
   ADR.md              # append-only decision log — committed
   board.config.json   # optional, see Configuration reference — gitignored
@@ -156,6 +156,15 @@ epics, tasks, and ADR entries. Task status is one of:
 | `doing` | Actively being worked. |
 | `review` | The agent believes the work is finished; awaiting human acceptance. Auto-promotes to `done` after an idle window unless a human accepts (or rejects) it first. |
 | `done` | A human has looked at the work and accepted it. |
+
+### IDs
+
+New tasks and epics get short random IDs (`T-k7f2m`, `E-q4x9b`) from
+`python3 backlog/build.py --new task|epic`, which Claude runs instead of picking a number.
+There is no shared counter, so several people or branches can add tasks at the same time
+without colliding; `build.py` still fails loudly on the rare duplicate. Order comes from
+the `created:` timestamp (ISO date or datetime), not the ID. Existing numeric IDs
+(`T-014`) stay valid and are never renamed.
 
 ### Renaming the data directory
 
@@ -209,8 +218,7 @@ no `node_modules`.
   excluded), measured from `completed:` (an epic falls back to the latest `completed:`
   among its own tasks) and commits the deletion as `Backlog tasks update <date>`. A file is only deleted if it is tracked and
   clean, so it is always recoverable (`git log --diff-filter=D -- backlog/tasks/T-051-*`,
-  then `git show <sha>^:<path>`). Ids are never reused — the committed `INDEX.md`
-  `next:` line is the counter. Manual `build.py --archive` does the same, immediately.
+  then `git show <sha>^:<path>`). IDs are random (`T-k7f2m`), so a deleted ID is practically never issued again. Manual `build.py --archive` does the same, immediately.
 - **Starts and stops with Claude Code** — the plugin installs both hooks, so there's
   nothing to wire up per project and nothing to remember. `SessionStart` runs
   `serve.py` (which also re-syncs `backlog/build.py` from the plugin); `SessionEnd` runs `serve.py --session-end`, which stops the server
@@ -304,6 +312,7 @@ it yourself if the team should share settings):
 
 ```bash
 python3 backlog/build.py             # rebuild INDEX.md (validates ids, statuses, deferral gate)
+python3 backlog/build.py --new task  # print a fresh random id + created for a new task (or: epic)
 python3 backlog/build.py --archive   # delete every done item now, then rebuild
 python3 backlog/build.py --selftest  # run the inline self-checks
 ```

@@ -109,9 +109,16 @@ def checkbox_progress(body):
 
 
 def _id_key(item_id):
-    """Sort key putting T-9 < T-10 < T-1000: numeric, however many digits."""
+    """Legacy numeric ids sort numerically (T-9 < T-10 < T-1000, any digit count);
+    anything else (random ids) sorts by its text."""
     m = re.match(r"([A-Za-z]+)-(\d+)$", item_id or "")
     return (m.group(1), int(m.group(2)), item_id) if m else (item_id or "", 0, item_id or "")
+
+
+def _sort_key(item):
+    """Creation order first (ISO date or datetime — plain strings sort correctly), then
+    the id. Random ids carry no order, so `created` is the order."""
+    return (str(item.get("created", "")), _id_key(item.get("id", "")))
 
 
 def load_items(dir_path, kind):
@@ -132,23 +139,7 @@ def load_items(dir_path, kind):
         fields["_total"] = total
         fields["_kind"] = kind
         items.append(fields)
-    return sorted(items, key=lambda i: _id_key(i["id"]))
-
-
-def next_id(items, prefix, floor=0):
-    nums = [int(m.group(1)) for it in items
-            if (m := re.match(rf"{prefix}-(\d+)$", it.get("id", "")))]
-    return f"{prefix}-{max(nums + [floor]) + 1:03d}"
-
-
-def next_id_floor(backlog_dir: Path, prefix: str) -> int:
-    """Highest id ever issued, read back from the committed INDEX.md `next:` line, so
-    deleting finished items never lets an id be reused."""
-    index = backlog_dir / "INDEX.md"
-    if not index.is_file():
-        return 0
-    m = re.search(rf"^next: .*?\b{prefix}-(\d+)", index.read_text(), re.M)
-    return int(m.group(1)) - 1 if m else 0
+    return sorted(items, key=_sort_key)
 
 
 def git_clean_tracked(path: Path) -> bool:
@@ -576,8 +567,6 @@ class BoardState:
             "version": self.version,
             "review_after_days": review_days,
             "review_auto_accept": configured_review_auto_accept(self.backlog_dir),
-            "next": {"task": next_id(tasks, "T", next_id_floor(self.backlog_dir, "T")),
-                     "epic": next_id(epics, "E", next_id_floor(self.backlog_dir, "E"))},
             "epics": [
                 {"id": e.get("id", ""), "title": e.get("title", ""),
                  "status": e.get("status", "todo"), "created": e.get("created", ""),
@@ -1046,9 +1035,8 @@ def _selftest_parsers():
     assert fm == {"id": "T-001", "status": "todo"}, fm
     assert checkbox_progress(body) == (1, 2)
 
-    items = [{"id": "T-001"}, {"id": "T-003"}]
-    assert next_id(items, "T") == "T-004"
-    assert next_id([], "E") == "E-001"
+    assert _sort_key({"id": "T-9", "created": "2026-01-01"}) < _sort_key({"id": "T-10", "created": "2026-01-01"})
+    assert _sort_key({"id": "T-zz", "created": "2026-01-01"}) < _sort_key({"id": "T-aa", "created": "2026-01-02T09:00"})
 
     epic = {"id": "E-001"}
     assert derive_epic_status(
@@ -1100,8 +1088,6 @@ def _selftest_live():
                 payload = json.loads(r.read().decode("utf-8"))
             assert len(payload["tasks"]) == 1, payload["tasks"]
             assert payload["tasks"][0]["id"] == "T-001"
-            assert payload["next"]["task"] == "T-002"
-            assert payload["next"]["epic"] == "E-002"
 
             def write_new_task():
                 time.sleep(0.3)
@@ -1188,7 +1174,6 @@ def _selftest_archive_retention():
         (T / "T-002-recent.md").write_text(f"---\nid: T-002\nepic: E-001\nstatus: done\ncompleted: {recent}\n---\n")
         (T / "T-003-nodate.md").write_text("---\nid: T-003\nepic: E-001\nstatus: done\n---\n")
         (backlog_dir / "epics" / "E-001-x.md").write_text("---\nid: E-001\ntitle: Test\n---\n")
-        (backlog_dir / "INDEX.md").write_text("next: T-004 · E-002\n")
 
         # outside a git repo nothing is deleted (no history to recover from)
         assert archive_stale_done(backlog_dir, min_age_days=3) == []
@@ -1202,8 +1187,6 @@ def _selftest_archive_retention():
         assert (T / "T-002-recent.md").exists()
         _git_commit_all(Path(tmp))
         assert {p.name for p in archive_stale_done(backlog_dir, min_age_days=3)} == {"T-002-recent.md"}
-        # deleting must not let ids be reused
-        assert next_id(load_items(T, "task"), "T", next_id_floor(backlog_dir, "T")) == "T-004"
 
 
 def _selftest_commit_sweep_and_inprogress():

@@ -93,6 +93,7 @@
         <tr><td><code>/backlog-board:backlog-handoff</code></td><td>Writes a continuation task for in-flight <code>doing</code> work and prints the resume line, for stopping a session mid-task.</td></tr>
         <tr><td><code>backlog</code> skill</td><td>Triggered by plain language: add a task/epic, &ldquo;what&rsquo;s next&rdquo;, change status, record an ADR, check progress.</td></tr>
         <tr><td><code>python3 backlog/build.py</code></td><td>Regenerates <code>INDEX.md</code> and validates the backlog (known statuses, duplicate ids). Run after any file change.</td></tr>
+        <tr><td><code>python3 backlog/build.py --new task</code></td><td>Prints a fresh random <code>id:</code> and <code>created:</code> for a new task (or <code>epic</code>). Claude uses this instead of picking IDs itself.</td></tr>
         <tr><td><code>python3 backlog/build.py --archive</code></td><td>Deletes every <code>done</code> task/epic immediately (only git-tracked, clean files). Git history is the archive.</td></tr>
         <tr><td><code>python3 &lt;plugin&gt;/server/serve.py --stop</code></td><td>Stops this project&rsquo;s board server. Other flags: <code>--port N</code>, <code>--dir NAME</code>, <code>--root PATH</code>, <code>--foreground</code>.</td></tr>
       </table>
@@ -104,7 +105,7 @@
         <li><b>Review auto-accept:</b> a <code>review</code> task untouched for <code>review_after_days</code> (default 1 working day, measured from <code>updated:</code>) becomes <code>done</code> with <code>completed:</code> stamped.</li>
         <li><b>Old tasks removal:</b> <code>done</code> tasks and epics older than <code>archive_after_days</code> (default 7 working days, from <code>completed:</code>) are deleted. Only git-tracked, clean files are removed, so everything is recoverable from git.</li>
         <li><b>Auto-commit:</b> the deletion is committed on its own as <code>Backlog tasks update YYYY-MM-DD</code>, touching only the deleted files.</li>
-        <li><b>IDs never reused:</b> the committed <code>INDEX.md</code> <code>next:</code> line is the counter.</li>
+        <li><b>Collision-proof IDs:</b> new tasks get random IDs like <code>T-k7f2m</code> from <code>build.py --new task</code>, so several people or branches can add tasks without clashing. Order comes from <code>created:</code>. Older numeric IDs keep working.</li>
         <li><b>build.py sync:</b> <code>backlog/build.py</code> is overwritten from the plugin at each session start &mdash; don&rsquo;t hand-edit it.</li>
         <li><b>Context nudge:</b> while a task is <code>doing</code> and the context grows large, Claude is nudged to wrap up or hand off.</li>
         <li><b>No task IDs in code:</b> Claude is instructed not to write task/epic IDs into code or comments, since task files get deleted.</li>

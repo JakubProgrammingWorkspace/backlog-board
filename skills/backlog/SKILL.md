@@ -16,7 +16,7 @@ committing one of those; it's deliberate.
 
 ```
 backlog/
-  INDEX.md            # generated — read this first, it has the next free ID
+  INDEX.md            # generated — read this first, one row per task
   build.py            # run after any write under backlog/ — gitignored, not committed;
                       #   overwritten from the plugin on every session start, never hand-edit
   ADR.md              # append-only decision log
@@ -39,8 +39,7 @@ for readability; substitute the configured name if the project has renamed it.
 
 ## Reading state
 
-Read `backlog/INDEX.md`. It has a `next: T-0xx · E-0xx` line (the next free IDs)
-and one table row per task. Only open an individual task/epic `.md` file when you
+Read `backlog/INDEX.md`. It has one table row per task, in creation order. Only open an individual task/epic `.md` file when you
 need its full body (Context/Subtasks/Notes) — don't read every file to answer
 "what's next".
 
@@ -48,12 +47,12 @@ need its full body (Context/Subtasks/Notes) — don't read every file to answer
 
 ```markdown
 ---
-id: T-014
+id: T-k7f2m           # from `build.py --new task`, never hand-picked
 title: Short imperative title
 epic: E-002
 status: todo          # investigate | todo | doing | review | done  (inprogress = alias of todo)
 priority: P1           # P1 urgent/blocking, P2 normal, P3 low/someday
-created: 2026-08-11
+created: 2026-08-11T09:30:00   # printed by `build.py --new`, ISO datetime
 updated: 2026-08-11
 docs: docs/some-investigation.md#anchor   # optional, link to source doc
 ---
@@ -75,8 +74,11 @@ ADR entry format.
 
 ## Rules
 
-- Allocate new IDs from `INDEX.md`'s `next:` line. **Never renumber** an
-  existing ID, even if a task is deleted.
+- Get a new ID by running `python3 backlog/build.py --new task` (or `epic`); it
+  prints a fresh random `id:` (e.g. `T-k7f2m`) and the `created:` timestamp to paste
+  into the frontmatter. **Never invent an ID by hand** and **never renumber** an
+  existing one. Random IDs mean two people or branches can add tasks without
+  colliding; older numeric IDs (`T-014`) stay valid.
 - After **any** create/edit/delete under `backlog/`, run
   `python3 backlog/build.py` to regenerate `INDEX.md`. The live board (if running)
   picks up the change on its own within ~1s — no separate step for it.
@@ -286,7 +288,7 @@ Done items are **deleted, not archived — git history is the archive.** Run
 `python3 backlog/build.py --archive` to delete every `status: done` task (and every
 epic whose derived status is `done`) now, then rebuild. A file is only deleted if it
 is git-tracked and clean (nothing uncommitted would be lost); otherwise it is skipped.
-IDs are never reused: `INDEX.md` is committed and its `next:` line is the counter.
+IDs are random, so a deleted task's ID is practically never issued again.
 
 To read a deleted item: `git log --all --diff-filter=D --name-only -- 'backlog/tasks/T-051-*'`
 finds the deleting commit, then `git show <sha>^:backlog/tasks/<file>`. Commit
