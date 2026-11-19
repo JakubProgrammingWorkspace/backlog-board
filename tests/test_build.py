@@ -183,3 +183,14 @@ def test_new_cli_prints_id_and_created(build, backlog, capsys):
     assert "T" in lines[1]  # ISO datetime
     with pytest.raises(SystemExit, match="usage"):
         build.run_new(backlog, ["bogus"])
+
+
+def test_index_md_is_gitignored(build, backlog, git_repo):
+    import subprocess
+    build.run(backlog)
+    out = subprocess.run(["git", "check-ignore", "-q", str(backlog / "INDEX.md")],
+                         cwd=backlog.parent, check=False)
+    assert out.returncode == 0
+    keep = subprocess.run(["git", "check-ignore", "-q", str(backlog / "ADR.md")],
+                          cwd=backlog.parent, check=False)
+    assert keep.returncode == 1  # hand-written markdown still tracked

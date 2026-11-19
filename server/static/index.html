@@ -106,6 +106,7 @@
         <li><b>Old tasks removal:</b> <code>done</code> tasks and epics older than <code>archive_after_days</code> (default 7 working days, from <code>completed:</code>) are deleted. Only git-tracked, clean files are removed, so everything is recoverable from git.</li>
         <li><b>Auto-commit:</b> the deletion is committed on its own as <code>Backlog tasks update YYYY-MM-DD</code>, touching only the deleted files.</li>
         <li><b>Collision-proof IDs:</b> new tasks get random IDs like <code>T-k7f2m</code> from <code>build.py --new task</code>, so several people or branches can add tasks without clashing. Order comes from <code>created:</code>. Older numeric IDs keep working.</li>
+        <li><b>INDEX.md:</b> it is generated and gitignored, so branches never conflict on it; the session start rebuilds it after a pull or merge.</li>
         <li><b>build.py sync:</b> <code>backlog/build.py</code> is overwritten from the plugin at each session start &mdash; don&rsquo;t hand-edit it.</li>
         <li><b>Context nudge:</b> while a task is <code>doing</code> and the context grows large, Claude is nudged to wrap up or hand off.</li>
         <li><b>No task IDs in code:</b> Claude is instructed not to write task/epic IDs into code or comments, since task files get deleted.</li>
@@ -118,6 +119,7 @@
         <li>Restart the session so the hooks and the board server load the new version.</li>
         <li>On the next session start <code>backlog/build.py</code> is re-synced from the plugin automatically &mdash; nothing to copy by hand.</li>
         <li>If the board still looks old, run <code>python3 &lt;plugin&gt;/server/serve.py --stop</code> and start the board again.</li>
+        <li>Upgrading from a version that committed <code>INDEX.md</code>? Run <code>git rm --cached backlog/INDEX.md</code> once and commit.</li>
         <li>Installed from a local clone? Bump <code>version</code> in <code>.claude-plugin/plugin.json</code> first &mdash; Claude keeps using its cached copy until the version changes.</li>
       </ol>
 

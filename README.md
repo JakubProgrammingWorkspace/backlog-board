@@ -125,7 +125,7 @@ python3 backlog/build.py
 
 ```
 backlog/
-  INDEX.md            # generated — one row per task, in creation order — committed
+  INDEX.md            # generated — one row per task, in creation order — gitignored, rebuilt at session start
   build.py            # copied in at init and re-synced from the plugin on every session start, stdlib only — gitignored, not committed
   ADR.md              # append-only decision log — committed
   board.config.json   # optional, see Configuration reference — gitignored
@@ -137,7 +137,7 @@ backlog/
   tasks/T-014-slug.md
 ```
 
-**Only `.md` files under `backlog/` are ever committed** — everything else above is
+**Only hand-written `.md` files under `backlog/` are ever committed** (`INDEX.md` is generated, so it is ignored too) — everything else above is
 excluded via `backlog/.gitignore`, generated automatically (both `build.py` and the
 board server write/verify it on every run — no install step, nothing to remember, and
 hand-editing it is pointless since it's overwritten back to the canonical content on
@@ -252,6 +252,8 @@ coming up somewhere unexpected. Fix it by freeing the port, or pointing
    start; there is nothing to copy by hand.
 4. Installed from a local clone? Bump `version` in `.claude-plugin/plugin.json` first —
    Claude keeps using its cached copy until the version changes.
+5. Upgrading from a version that committed `INDEX.md`? Run
+   `git rm --cached backlog/INDEX.md` once and commit; it is gitignored from now on.
 
 ## Session boundaries
 
@@ -332,8 +334,8 @@ python3 backlog/build.py --selftest  # run the inline self-checks
   in this format is a plain string, so a full parser would be dead dependency weight.
 - Epic status is derived from its tasks, never set by hand, so it can't drift.
 - The board server is plugin-only, never copied into the project (unlike `build.py`) —
-  a clone without the plugin installed still has the raw `.md` files and `INDEX.md`,
-  just no board.
+  a clone without the plugin installed still has the raw `.md` files (and can
+  regenerate `INDEX.md` with `build.py`), just no board.
 - File watching is a 0.7s mtime poll, not `inotify` — one dependency-free `stat()`
   loop, plenty fast at backlog sizes this format is meant for.
 - One vendored frontend file: `server/static/vendor/marked.min.js` (MIT licensed,

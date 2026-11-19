@@ -59,7 +59,7 @@ python3 backlog/build.py
 ```
 
 Nothing else is required — no config file, no dependency install. `INDEX.md`
-should be committed to git (it's small and diffs cleanly).
+is generated and gitignored, so it is not committed (it is rebuilt at session start).
 
 **Gitignore policy: only `.md` files under `backlog/` are ever committed** — `build.py`,
 `board.config.json`, `.board`, everything non-`.md`, are excluded. This is enforced by

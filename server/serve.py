@@ -444,7 +444,8 @@ def _run_sweeps(backlog_dir: Path):
 GITIGNORE_CONTENT = (
     "# backlog-board: only markdown content here is version-controlled — everything\n"
     "# else is generated, local runtime state, or copied-in tooling. See SKILL.md.\n"
-    "*\n!.gitignore\n!*.md\n!*/\n"
+    "# INDEX.md is generated too (rebuilt at session start), so it is not committed.\n"
+    "*\n!.gitignore\n!*.md\n!*/\nINDEX.md\n"
 )
 
 
@@ -959,8 +960,25 @@ def session_end(backlog_dir: Path, quiet: bool = False):
     stop_server(backlog_dir, quiet=quiet)
 
 
+def refresh_index(backlog_dir: Path):
+    """Rebuild the gitignored INDEX.md (e.g. after a pull or merge changed task files).
+    Prints build.py's complaint (duplicate ids, unknown status) so it surfaces at
+    session start; stays silent on success."""
+    build = backlog_dir / "build.py"
+    if not build.is_file():
+        return
+    try:
+        r = subprocess.run([sys.executable, str(build)], capture_output=True, text=True,
+                           timeout=3, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    if r.returncode != 0:
+        print(f"backlog board: build.py failed — {(r.stderr or r.stdout).strip()}")
+
+
 def run_foreground(project_root: Path, backlog_dir: Path, port: int):
     sync_build_py(backlog_dir)
+    refresh_index(backlog_dir)
     existing = probe_health(port)
     if existing and existing.get("root") == str(project_root):
         _register_current_session(backlog_dir)
@@ -984,6 +1002,7 @@ def launch_detached(project_root: Path, backlog_dir: Path, port: int):
     invoking this script completes), child setsid()s to detach from the controlling
     terminal and keeps serving after the parent's shell exits."""
     sync_build_py(backlog_dir)
+    refresh_index(backlog_dir)
     existing = probe_health(port)
     if existing and existing.get("root") == str(project_root):
         _register_current_session(backlog_dir)
@@ -1342,6 +1361,19 @@ def _selftest_review_auto_accept_toggle():
         assert fields2["status"] == "done", fields2
 
 
+def _selftest_refresh_index():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        backlog_dir = Path(tmp) / "backlog"
+        (backlog_dir / "tasks").mkdir(parents=True)
+        (backlog_dir / "epics").mkdir()
+        refresh_index(backlog_dir)  # no build.py yet -> no-op
+        assert not (backlog_dir / "INDEX.md").exists()
+        sync_build_py(backlog_dir)
+        refresh_index(backlog_dir)
+        assert (backlog_dir / "INDEX.md").is_file()
+
+
 def _selftest_sync_build_py():
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
@@ -1515,6 +1547,7 @@ def selftest():
     _selftest_review_auto_accept_toggle()
     _selftest_ensure_gitignore()
     _selftest_sync_build_py()
+    _selftest_refresh_index()
     _selftest_sessions()
     _selftest_context_nudge()
     _selftest_live()

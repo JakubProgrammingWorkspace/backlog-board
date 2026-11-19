@@ -110,3 +110,16 @@ def test_sort_key_parity(build, serve):
     items = [{"id": "T-9"}, {"id": "T-1000"}, {"id": "T-k7f2m", "created": "2026-11-19T22:10"},
              {"id": "T-10", "created": "2026-11-19"}]
     assert sorted(items, key=build._sort_key) == sorted(items, key=serve._sort_key)
+
+
+def test_refresh_index_rebuilds_and_reports_errors(serve, backlog, put, capsys):
+    serve.refresh_index(backlog)  # no build.py -> silent no-op
+    serve.sync_build_py(backlog)
+    put(backlog, "epics", "E-001-x.md", id="E-001", title="X")
+    put(backlog, "tasks", "T-k7f2m-a.md", id="T-k7f2m", title="a", epic="E-001", status="todo")
+    serve.refresh_index(backlog)
+    assert "T-k7f2m" in (backlog / "INDEX.md").read_text()
+    assert capsys.readouterr().out == ""
+    put(backlog, "tasks", "T-k7f2m-b.md", id="T-k7f2m", title="dup", epic="E-001", status="todo")
+    serve.refresh_index(backlog)
+    assert "duplicate id" in capsys.readouterr().out

@@ -286,7 +286,8 @@ def archive(backlog_dir: Path, epics, tasks):
 GITIGNORE_CONTENT = (
     "# backlog-board: only markdown content here is version-controlled — everything\n"
     "# else is generated, local runtime state, or copied-in tooling. See SKILL.md.\n"
-    "*\n!.gitignore\n!*.md\n!*/\n"
+    "# INDEX.md is generated too (rebuilt at session start), so it is not committed.\n"
+    "*\n!.gitignore\n!*.md\n!*/\nINDEX.md\n"
 )
 
 

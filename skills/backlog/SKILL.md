@@ -16,7 +16,7 @@ committing one of those; it's deliberate.
 
 ```
 backlog/
-  INDEX.md            # generated — read this first, one row per task
+  INDEX.md            # generated, gitignored (rebuilt at session start) — read this first, one row per task
   build.py            # run after any write under backlog/ — gitignored, not committed;
                       #   overwritten from the plugin on every session start, never hand-edit
   ADR.md              # append-only decision log
@@ -164,8 +164,8 @@ user asks to shut the board down right now, run `serve.py --stop`, which is
 unconditional and ignores the registry. There's no idle self-reap — the board
 stays up until the hooks stop it.
 
-A project without the plugin installed has no board — it still has `INDEX.md` and
-the raw `.md` files, which is why `build.py` stays dependency-free and copied into
+A project without the plugin installed has no board — it still has the raw `.md`
+files (`build.py` regenerates `INDEX.md`), which is why `build.py` stays dependency-free and copied into
 each project (see `reference/init.md`).
 
 ## Starting a task
