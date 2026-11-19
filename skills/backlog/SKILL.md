@@ -20,7 +20,8 @@ backlog/
   build.py            # run after any write under backlog/ — gitignored, not committed;
                       #   overwritten from the plugin on every session start, never hand-edit
   ADR.md              # append-only decision log
-  board.config.json   # optional — {"port": N, "archive_after_days": N, "archive_enabled": bool,
+  board.config.json   # optional — {"port": N, "archive_after_days": N,
+                      #   "auto_commit": bool, "archive_enabled": bool,
                       #   "nudge_at_tokens": N, "nudge_every_tokens": N}, gitignored
   .gitignore          # generated — enforces the only-.md policy above
   .board              # gitignored, written by the running board server (pid, port)
@@ -50,7 +51,7 @@ need its full body (Context/Subtasks/Notes) — don't read every file to answer
 id: T-014
 title: Short imperative title
 epic: E-002
-status: todo          # investigate | todo | doing | review | done
+status: todo          # investigate | todo | doing | review | done  (inprogress = alias of todo)
 priority: P1           # P1 urgent/blocking, P2 normal, P3 low/someday
 created: 2026-08-11
 updated: 2026-08-11
@@ -292,24 +293,26 @@ finds the deleting commit, then `git show <sha>^:backlog/tasks/<file>`. Commit
 messages are the other index (`git log --grep T-051`) — so name the task ID in the
 commit message.
 
-**Never put task or epic IDs in code, comments, docstrings, test names or docs
-prose.** The task file will be deleted, leaving a dead pointer. Write the *why*
+**Never put task or epic IDs in code (no `TODO(T-12)`, no `// see T-12`, no ID in test names), comments, docstrings, test names or docs
+prose.** The task file will be deleted, leaving a dead pointer — so deferred work in code is plain prose saying what and why. Write the *why*
 itself in the comment. IDs live in `docs:`/`[[T-xxx]]` links inside the backlog and
 in commit messages, nowhere else.
 
 **The board server does this automatically too, on the same schedule as the
-review sweep above.** It deletes `done` items older than a retention window —
-default **3 working days** (weekends excluded from the count), measured from
+review sweep above.** It deletes `done` items older than a retention
+window — default **7 working days** (weekends excluded), measured from
 `completed:` (an epic with no `completed:`/`updated:` of its own uses the latest
 `completed:` among its tasks, since epic status is derived, not hand-set).
 `completed:` is always populated now — either by a human accepting the task, or
 by the auto-accept sweep — so this no longer silently falls back to `updated:`
 in the common case; that fallback still exists for tasks written before this
-convention, or hand-edited outside it. Override the window per-project in
+convention, or hand-edited outside it. Only git-tracked, clean files are deleted, and the
+sweep commits the deletion itself as `Backlog tasks update <YYYY-MM-DD>`
+(`auto_commit: false` in board.config.json disables). Override the window per-project in
 `board.config.json`:
 
 ```json
-{ "archive_after_days": 7 }
+{ "archive_after_days": 14 }
 ```
 
 Turn the whole sweep off per-project with `{ "archive_enabled": false }` in the same

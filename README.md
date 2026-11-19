@@ -139,10 +139,10 @@ no `node_modules`.
   `updated:` — a human editing the review notes buys another day) to `done`, stamping
   `completed:` itself. Turn it off with `review_auto_accept: false` to make `review` a
   hard human-only gate instead.
-- **Automatic retention** — the same schedule as the sweep above then deletes `done`
-  tasks and epics older than `archive_after_days` (default 3 working days, weekends
+- **Automatic retention** — the same schedule as the sweep above deletes `done`
+  tasks and epics older than `archive_after_days` (default 7 working days, weekends
   excluded), measured from `completed:` (an epic falls back to the latest `completed:`
-  among its own tasks). Git is the archive: a file is only deleted if it is tracked and
+  among its own tasks) and commits the deletion as `Backlog tasks update <date>`. A file is only deleted if it is tracked and
   clean, so it is always recoverable (`git log --diff-filter=D -- backlog/tasks/T-051-*`,
   then `git show <sha>^:<path>`). Ids are never reused — the committed `INDEX.md`
   `next:` line is the counter. Manual `build.py --archive` does the same, immediately.
@@ -203,7 +203,8 @@ it yourself if the team should share settings):
 | `port` | `3201` | Board server port. Precedence: `--port` flag > this file > default. |
 | `review_after_days` | `1` | Age in working days (from `updated:`, weekends excluded) after which a `review` task auto-promotes to `done`. |
 | `review_auto_accept` | `true` | Turns the automatic review-acceptance sweep off — `review` becomes a hard human-only gate. |
-| `archive_after_days` | `3` | Age in working days (from `completed:`, weekends excluded) after which the board's startup sweep deletes a `done` item (recoverable from git). |
+| `auto_commit` | `true` | After the sweep deletes items, commit just those deletions as `Backlog tasks update <YYYY-MM-DD>`. |
+| `archive_after_days` | `7` | Age in working days (from `completed:`, weekends excluded) after which the startup sweep deletes a `done` item (recoverable from git). |
 | `archive_enabled` | `true` | Turns the automatic startup sweep off. Manual `build.py --archive` still works either way. |
 | `nudge_at_tokens` | `120000` | Context size (real token count) at which the session-boundary nudge starts firing. |
 | `nudge_every_tokens` | `25000` | How much further context has to grow before the nudge fires again. |
@@ -214,7 +215,7 @@ it yourself if the team should share settings):
   "port": 3201,
   "review_after_days": 1,
   "review_auto_accept": true,
-  "archive_after_days": 3,
+  "archive_after_days": 7,
   "archive_enabled": true,
   "nudge_at_tokens": 120000,
   "nudge_every_tokens": 25000,

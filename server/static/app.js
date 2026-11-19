@@ -135,7 +135,7 @@
         </div>
         <div class="card-title">${escapeHtml(t.title)}</div>
         <div class="card-meta">${t.epic}${t.total ? ` · ${t.done}/${t.total}` : ""}${sessionTag}${reviewTag}${archived
-          ? ` · <span class="archived-tag" title="moved to archive/ by retention — still counted, not deleted">archived</span>` : ""}</div>
+          ? ` · <span class="archived-tag" title="legacy archive/ item — deleted by the retention sweep">archived</span>` : ""}</div>
         ${t.total ? `<div class="bar"><div style="width:${pct}%"></div></div>` : ""}
       </div>`;
   }
@@ -187,7 +187,7 @@
           <h3>${e.id} <span class="status-badge ${e.status}">${e.status}</span></h3>
           <div class="card-title">${escapeHtml(e.title)}</div>
           <div class="card-meta">${done}/${own.length} tasks done${archived
-            ? ` · <span class="archived-tag" title="moved to archive/ by retention — still counted, not deleted">archived</span>` : ""}</div>
+            ? ` · <span class="archived-tag" title="legacy archive/ item — deleted by the retention sweep">archived</span>` : ""}</div>
         </div>`;
     }).join("") || `<div class="empty">No epics yet.</div>`;
   }
@@ -218,7 +218,7 @@
     state.openId = id;
 
     const archivedChip = isArchived(item.path)
-      ? `<span class="drawer-chip archived-tag" title="moved to archive/ by retention — still counted, not deleted">archived</span>` : "";
+      ? `<span class="drawer-chip archived-tag" title="legacy archive/ item — deleted by the retention sweep">archived</span>` : "";
     const sessionChip = kind === "task" && item.status === "doing" && item.session_id
       ? `<span class="drawer-chip session-tag" title="${escapeHtml(item.session_id)}">session ${escapeHtml(item.session_id.slice(0, 8))}</span>` : "";
     const reviewLabel = kind === "task" ? reviewCountdownLabel(item) : null;

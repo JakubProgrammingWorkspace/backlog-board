@@ -22,7 +22,7 @@ FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n?", re.DOTALL)
 DEFERRAL_REF_RE = re.compile(r"T-\d{3}")
 SUBTASK_LINE_RE = re.compile(r"^(\s*)-\s*\[([ xX])\]")
 HEADING_RE = re.compile(r"^#{1,6}\s")
-VALID_STATUSES = {"investigate", "todo", "doing", "review", "done"}
+VALID_STATUSES = {"investigate", "todo", "doing", "review", "done", "inprogress"}  # inprogress -> todo in load_items
 
 
 def parse_frontmatter(text):
@@ -57,6 +57,8 @@ def load_items(dir_path, kind):
         if "id" not in fields:
             continue  # not a task/epic file, skip silently
         done, total = checkbox_progress(body)
+        if fields.get("status") == "inprogress":
+            fields["status"] = "todo"  # alias: treated exactly like todo
         fields["_path"] = str(path)
         fields["_done"] = done
         fields["_total"] = total

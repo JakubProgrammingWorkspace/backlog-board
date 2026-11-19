@@ -31,7 +31,7 @@ an idea nobody's scoped yet.
 id: T-014
 title: DXC prior_guidance never populated from prose
 epic: E-002
-status: todo          # investigate | todo | doing | review | done
+status: todo          # investigate | todo | doing | review | done  (inprogress = alias of todo)
 priority: P1           # P1 = urgent, blocking other work or a user-facing break
                         # P2 = normal — the default for planned work
                         # P3 = low / someday — nice to have, no pressure

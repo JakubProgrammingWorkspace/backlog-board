@@ -39,7 +39,7 @@ SESSIONS_FILENAME = ".board-sessions"  # pids of the Claude processes with this 
 NUDGE_FILENAME = ".board-nudge"        # last context-token count the context-nudge hook
                                         # already fired at, so it re-fires only every
                                         # nudge_every_tokens rather than on every prompt
-DEFAULT_ARCHIVE_AFTER_DAYS = 3  # working days, weekends excluded
+DEFAULT_ARCHIVE_AFTER_DAYS = 7  # working days, weekends excluded
 DEFAULT_REVIEW_AFTER_DAYS = 1   # working days, weekends excluded
 DEFAULT_NUDGE_AT_TOKENS = 120_000
 DEFAULT_NUDGE_EVERY_TOKENS = 25_000
@@ -118,6 +118,8 @@ def load_items(dir_path, kind):
         if "id" not in fields:
             continue  # not a task/epic file, skip silently
         done, total = checkbox_progress(body)
+        if fields.get("status") == "inprogress":
+            fields["status"] = "todo"  # alias: treated exactly like todo
         fields["_path"] = str(path)
         fields["_body"] = body
         fields["_done"] = done
@@ -156,6 +158,29 @@ def git_clean_tracked(path: Path) -> bool:
     except OSError:
         return False
     return status.returncode == 0 and not status.stdout.strip()
+
+
+def commit_sweep(backlog_dir: Path, paths):
+    """Commit the files the sweep just deleted (pathspec-limited, so any other staged
+    work is untouched). Silent no-op outside git or on any git failure."""
+    if not paths:
+        return
+    cwd = str(backlog_dir)
+    names = [str(p) for p in paths]
+    msg = f"Backlog tasks update {date.today().isoformat()}"
+    try:
+        subprocess.run(["git", "-C", cwd, "add", "-A", "--", *names],
+                       capture_output=True, text=True, check=True)
+        subprocess.run(["git", "-C", cwd, "commit", "-m", msg, "--", *names],
+                       capture_output=True, text=True, check=True)
+    except (OSError, subprocess.CalledProcessError):
+        pass
+
+
+def configured_auto_commit(backlog_dir: Path) -> bool:
+    """{"auto_commit": bool} in board.config.json; default True."""
+    v = _read_config(backlog_dir).get("auto_commit")
+    return True if v is None else bool(v)
 
 
 def remove_empty_archive_dirs(backlog_dir: Path):
@@ -412,9 +437,11 @@ def _run_sweeps(backlog_dir: Path):
     days = configured_archive_days(backlog_dir)
     if days is None:
         days = DEFAULT_ARCHIVE_AFTER_DAYS
-    moved = archive_stale_done(backlog_dir, days)
-    if moved:
-        print(f"backlog board: deleted {len(moved)} item(s) done for {days}+ day(s) (in git history)")
+    removed = archive_stale_done(backlog_dir, days)
+    if removed:
+        print(f"backlog board: deleted {len(removed)} item(s) done for {days}+ day(s) (in git history)")
+        if configured_auto_commit(backlog_dir):
+            commit_sweep(backlog_dir, removed)
 
 
 GITIGNORE_CONTENT = (
@@ -1144,54 +1171,52 @@ def _git_commit_all(repo: Path):
 
 def _selftest_archive_retention():
     import tempfile
-    from datetime import timedelta
     with tempfile.TemporaryDirectory() as tmp:
         backlog_dir = Path(tmp) / "backlog"
-        (backlog_dir / "tasks").mkdir(parents=True)
-        (backlog_dir / "epics").mkdir(parents=True)
-        old_date = (date.today() - timedelta(days=10)).isoformat()
-        recent_date = (date.today() - timedelta(days=1)).isoformat()
-
-        (backlog_dir / "tasks" / "T-001-old.md").write_text(
-            f"---\nid: T-001\nepic: E-001\nstatus: done\ncompleted: {old_date}\n---\n"
-        )
-        (backlog_dir / "tasks" / "T-002-recent.md").write_text(
-            f"---\nid: T-002\nepic: E-001\nstatus: done\ncompleted: {recent_date}\n---\n"
-        )
-        (backlog_dir / "tasks" / "T-003-nodate.md").write_text(
-            "---\nid: T-003\nepic: E-001\nstatus: done\n---\n"
-        )
-        (backlog_dir / "epics" / "E-001-x.md").write_text(
-            "---\nid: E-001\ntitle: Test\n---\n"
-        )
+        T = backlog_dir / "tasks"
+        T.mkdir(parents=True)
+        (backlog_dir / "epics").mkdir()
+        old = (date.today() - timedelta(days=30)).isoformat()
+        recent = (date.today() - timedelta(days=1)).isoformat()
+        (T / "T-001-old.md").write_text(f"---\nid: T-001\nepic: E-001\nstatus: done\ncompleted: {old}\n---\n")
+        (T / "T-002-recent.md").write_text(f"---\nid: T-002\nepic: E-001\nstatus: done\ncompleted: {recent}\n---\n")
+        (T / "T-003-nodate.md").write_text("---\nid: T-003\nepic: E-001\nstatus: done\n---\n")
+        (backlog_dir / "epics" / "E-001-x.md").write_text("---\nid: E-001\ntitle: Test\n---\n")
         (backlog_dir / "INDEX.md").write_text("next: T-004 · E-002\n")
 
         # outside a git repo nothing is deleted (no history to recover from)
         assert archive_stale_done(backlog_dir, min_age_days=3) == []
-        assert (backlog_dir / "tasks" / "T-001-old.md").exists()
-
         _git_commit_all(Path(tmp))
-        removed = {p.name for p in archive_stale_done(backlog_dir, min_age_days=3)}
-        assert removed == {"T-001-old.md"}, removed
-        assert not (backlog_dir / "tasks" / "T-001-old.md").exists()
-        assert (backlog_dir / "tasks" / "T-002-recent.md").exists()  # too recent
-        assert (backlog_dir / "tasks" / "T-003-nodate.md").exists()  # no date, left alone
+        assert {p.name for p in archive_stale_done(backlog_dir, min_age_days=3)} == {"T-001-old.md"}
+        assert (T / "T-002-recent.md").exists() and (T / "T-003-nodate.md").exists()
         assert (backlog_dir / "epics" / "E-001-x.md").exists()  # newest child is recent
         # uncommitted edit -> not deleted
-        recent = backlog_dir / "tasks" / "T-002-recent.md"
-        recent.write_text(f"---\nid: T-002\nepic: E-001\nstatus: done\ncompleted: {old_date}\n---\n")
-        # (the epic is clean and now old enough, so only it goes)
+        (T / "T-002-recent.md").write_text(f"---\nid: T-002\nepic: E-001\nstatus: done\ncompleted: {old}\n---\n")
         assert {p.name for p in archive_stale_done(backlog_dir, min_age_days=3)} == {"E-001-x.md"}
-        assert recent.exists()
-
+        assert (T / "T-002-recent.md").exists()
         _git_commit_all(Path(tmp))
-        removed2 = {p.name for p in archive_stale_done(backlog_dir, min_age_days=3)}
-        assert removed2 == {"T-002-recent.md"}, removed2
-        assert archive_stale_done(backlog_dir, min_age_days=3) == []
+        assert {p.name for p in archive_stale_done(backlog_dir, min_age_days=3)} == {"T-002-recent.md"}
+        # deleting must not let ids be reused
+        assert next_id(load_items(T, "task"), "T", next_id_floor(backlog_dir, "T")) == "T-004"
 
-        # deleting T-001/T-002 must not let ids be reused
-        remaining = load_items(backlog_dir / "tasks", "task")
-        assert next_id(remaining, "T", next_id_floor(backlog_dir, "T")) == "T-004"
+
+def _selftest_commit_sweep_and_inprogress():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        backlog_dir = Path(tmp) / "backlog"
+        T = backlog_dir / "tasks"
+        T.mkdir(parents=True)
+        old = (date.today() - timedelta(days=30)).isoformat()
+        (T / "T-001-old.md").write_text(f"---\nid: T-001\nstatus: done\ncompleted: {old}\n---\n")
+        (T / "T-002-ip.md").write_text("---\nid: T-002\nstatus: inprogress\n---\n")
+        assert load_items(T, "task")[1]["status"] == "todo"  # inprogress == todo
+        _git_commit_all(Path(tmp))
+        _run_sweeps(backlog_dir)
+        def git(*a):
+            return subprocess.run(["git", "-C", tmp, *a], capture_output=True, text=True).stdout.strip()
+        assert not (T / "T-001-old.md").exists() and (T / "T-002-ip.md").exists()
+        assert git("log", "-1", "--format=%s") == f"Backlog tasks update {date.today().isoformat()}"
+        assert git("status", "--porcelain") == ""
 
 
 def _selftest_archive_toggle():
@@ -1479,6 +1504,7 @@ def selftest():
     _selftest_business_days_since()
     _selftest_archive_retention()
     _selftest_archive_toggle()
+    _selftest_commit_sweep_and_inprogress()
     _selftest_frontmatter_write()
     _selftest_review_promotion()
     _selftest_review_auto_accept_toggle()
