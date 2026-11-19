@@ -16,10 +16,10 @@ stdlib-only Python HTTP server that ships with the plugin for the board itself.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/board-dark.png">
-  <img alt="The backlog board showing a demo project" src="docs/screenshots/board.png">
+  <img alt="The backlog board showing a demo project, light theme (a dark version is shown in dark mode)" src="docs/screenshots/board.png">
 </picture>
 
-*The board for the demo backlog in [`examples/demo-project`](examples/demo-project), in light and dark themes (the board has a toggle).*
+*The board for the demo backlog in [`examples/demo-project`](examples/demo-project), in the light theme, with a dark version ([`board-dark.png`](docs/screenshots/board-dark.png)) shown automatically when your GitHub theme is dark. The board itself has a theme toggle.*
 
 ## Quick start
 
