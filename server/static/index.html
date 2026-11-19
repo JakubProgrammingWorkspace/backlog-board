@@ -43,6 +43,7 @@
     <button type="button" class="tab active" data-tab="board">Board</button>
     <button type="button" class="tab" data-tab="epics">Epics</button>
     <button type="button" class="tab" data-tab="adr">ADR</button>
+    <button type="button" class="tab" data-tab="manual">Manual</button>
   </nav>
 </header>
 
@@ -55,6 +56,88 @@
   </section>
   <section id="tab-adr" class="tab-panel">
     <article id="adr-body" class="adr-body markdown-body"></article>
+  </section>
+  <section id="tab-manual" class="tab-panel">
+    <article class="adr-body markdown-body manual">
+      <h1>Manual</h1>
+      <p>backlog-board keeps your dev work as plain Markdown files in <code>backlog/</code>
+        (epics, tasks, ADRs). Claude Code reads and writes them through the <code>backlog</code>
+        skill; this board is a live, <b>read-only</b> view &mdash; edits go through files, and
+        the board refreshes within about a second.</p>
+
+      <h2>How to use it</h2>
+      <ol>
+        <li>Ask Claude to add a task or epic (&ldquo;add a task to fix the login bug&rdquo;,
+          &ldquo;what&rsquo;s next?&rdquo;, &ldquo;mark T-012 done&rdquo;). The skill creates
+          <code>backlog/tasks/T-0xx-*.md</code> and regenerates <code>INDEX.md</code>.</li>
+        <li>Claude moves the task through its statuses while working; open this board to watch.</li>
+        <li>When work reaches <code>review</code>, look at it and accept it by setting
+          <code>status: done</code> and <code>completed: YYYY-MM-DD</code>.</li>
+        <li>Record decisions as ADRs (&ldquo;record a decision: &hellip;&rdquo;); they show up in the ADR tab.</li>
+      </ol>
+
+      <h2>Statuses</h2>
+      <table>
+        <tr><th>Status</th><th>Meaning</th></tr>
+        <tr><td><code>investigate</code></td><td>Needs research or is stuck on something external.</td></tr>
+        <tr><td><code>todo</code></td><td>Planned, not started. <code>inprogress</code> is accepted as an alias and treated exactly like <code>todo</code>.</td></tr>
+        <tr><td><code>doing</code></td><td>Being worked on right now (tied to a Claude session).</td></tr>
+        <tr><td><code>review</code></td><td>Work finished, waiting for a human to look at it.</td></tr>
+        <tr><td><code>done</code></td><td>Accepted. Epic status is derived from its tasks, never set by hand.</td></tr>
+      </table>
+
+      <h2>Commands</h2>
+      <table>
+        <tr><th>Command</th><th>What it does</th></tr>
+        <tr><td><code>/backlog-board:backlog-board</code></td><td>Starts (or reuses) the board server for this project and prints its URL. Safe to run repeatedly.</td></tr>
+        <tr><td><code>/backlog-board:backlog-handoff</code></td><td>Writes a continuation task for in-flight <code>doing</code> work and prints the resume line, for stopping a session mid-task.</td></tr>
+        <tr><td><code>backlog</code> skill</td><td>Triggered by plain language: add a task/epic, &ldquo;what&rsquo;s next&rdquo;, change status, record an ADR, check progress.</td></tr>
+        <tr><td><code>python3 backlog/build.py</code></td><td>Regenerates <code>INDEX.md</code> and validates the backlog (known statuses, duplicate ids). Run after any file change.</td></tr>
+        <tr><td><code>python3 backlog/build.py --archive</code></td><td>Deletes every <code>done</code> task/epic immediately (only git-tracked, clean files). Git history is the archive.</td></tr>
+        <tr><td><code>python3 &lt;plugin&gt;/server/serve.py --stop</code></td><td>Stops this project&rsquo;s board server. Other flags: <code>--port N</code>, <code>--dir NAME</code>, <code>--root PATH</code>, <code>--foreground</code>.</td></tr>
+      </table>
+
+      <h2>Automatic behaviour</h2>
+      <p>Runs when a Claude Code session starts, and again once per calendar day while the board stays up.</p>
+      <ul>
+        <li><b>Board server</b> starts at session start and stops at session end (when the last session for the project closes).</li>
+        <li><b>Review auto-accept:</b> a <code>review</code> task untouched for <code>review_after_days</code> (default 1 working day, measured from <code>updated:</code>) becomes <code>done</code> with <code>completed:</code> stamped.</li>
+        <li><b>Old tasks removal:</b> <code>done</code> tasks and epics older than <code>archive_after_days</code> (default 7 working days, from <code>completed:</code>) are deleted. Only git-tracked, clean files are removed, so everything is recoverable from git.</li>
+        <li><b>Auto-commit:</b> the deletion is committed on its own as <code>Backlog tasks update YYYY-MM-DD</code>, touching only the deleted files.</li>
+        <li><b>IDs never reused:</b> the committed <code>INDEX.md</code> <code>next:</code> line is the counter.</li>
+        <li><b>build.py sync:</b> <code>backlog/build.py</code> is overwritten from the plugin at each session start &mdash; don&rsquo;t hand-edit it.</li>
+        <li><b>Context nudge:</b> while a task is <code>doing</code> and the context grows large, Claude is nudged to wrap up or hand off.</li>
+        <li><b>No task IDs in code:</b> Claude is instructed not to write task/epic IDs into code or comments, since task files get deleted.</li>
+      </ul>
+      <p>Recover a deleted task: <code>git log --all --diff-filter=D --name-only -- 'backlog/tasks/T-051-*'</code>, then <code>git show &lt;sha&gt;^:&lt;path&gt;</code>.</p>
+
+      <h2>Configuration</h2>
+      <p>Optional file <code>backlog/board.config.json</code> (gitignored; commit it if the team should share it). Every key is optional.</p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>Meaning</th></tr>
+        <tr><td><code>port</code></td><td>3201</td><td>Board port. <code>--port</code> flag wins over this.</td></tr>
+        <tr><td><code>review_after_days</code></td><td>1</td><td>Working days before a silent <code>review</code> task auto-promotes to <code>done</code>.</td></tr>
+        <tr><td><code>review_auto_accept</code></td><td>true</td><td><code>false</code> makes <code>review</code> a human-only gate.</td></tr>
+        <tr><td><code>archive_after_days</code></td><td>7</td><td>Working days (weekends excluded) after <code>completed:</code> before a <code>done</code> item is deleted.</td></tr>
+        <tr><td><code>archive_enabled</code></td><td>true</td><td><code>false</code> turns off the automatic deletion.</td></tr>
+        <tr><td><code>auto_commit</code></td><td>true</td><td><code>false</code> deletes without committing.</td></tr>
+        <tr><td><code>nudge_at_tokens</code></td><td>120000</td><td>Context size where the wrap-up nudge starts.</td></tr>
+        <tr><td><code>nudge_every_tokens</code></td><td>25000</td><td>Growth needed before the nudge repeats.</td></tr>
+        <tr><td><code>require_deferral_links</code></td><td>false</td><td><code>true</code>: <code>build.py</code> refuses a <code>done</code>/<code>review</code> task with an unchecked subtask that doesn&rsquo;t name a filed follow-up task.</td></tr>
+      </table>
+<pre>{
+  "port": 3201,
+  "review_after_days": 1,
+  "review_auto_accept": true,
+  "archive_after_days": 7,
+  "archive_enabled": true,
+  "auto_commit": true,
+  "nudge_at_tokens": 120000,
+  "nudge_every_tokens": 25000,
+  "require_deferral_links": false
+}</pre>
+      <p>To use a different folder than <code>backlog/</code>, put <code>{"dir": "name"}</code> in <code>.backlogrc.json</code> at the project root.</p>
+    </article>
   </section>
 </main>
 

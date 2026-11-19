@@ -149,6 +149,9 @@ main { padding: 18px 24px 40px; }
   max-width: 80ch; background: var(--surface); border-radius: 8px; padding: 20px 24px;
   box-shadow: 0 1px 0 rgba(9,30,66,.25);
 }
+.manual h1 { font-size: 20px; margin-top: 0; }
+.manual ul, .manual ol { padding-left: 22px; }
+.manual table { display: block; overflow-x: auto; }
 .markdown-body table { border-collapse: collapse; margin: 10px 0; }
 .markdown-body th, .markdown-body td { border: 1px solid var(--line); padding: 4px 10px; font-size: 12.5px; }
 .markdown-body code { background: var(--list-bg); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
