@@ -5,7 +5,7 @@
 ```markdown
 ---
 id: E-002
-title: Extraction hardening
+title: Import pipeline hardening
 created: 2026-08-11
 updated: 2026-08-11
 ---
@@ -29,7 +29,7 @@ an idea nobody's scoped yet.
 ```markdown
 ---
 id: T-014
-title: DXC prior_guidance never populated from prose
+title: CSV import drops rows with quoted commas
 epic: E-002
 status: todo          # investigate | todo | doing | review | done  (inprogress = alias of todo)
 priority: P1           # P1 = urgent, blocking other work or a user-facing break
@@ -42,7 +42,7 @@ completed:              # set to today's date alongside status: done — by a hu
                          # auto-accept sweep — drives the retention sweep, see SKILL.md
 session_id:              # set to $CLAUDE_CODE_SESSION_ID alongside status: doing —
                          # which session is (or was last) working this task
-docs: docs/pipeline/extraction-open-concerns.md#a-dxc
+docs: docs/import-open-concerns.md#quoted-commas
 ---
 
 ## Context
@@ -84,8 +84,8 @@ continuation:
 ```markdown
 ---
 id: T-052
-title: Finish backfilling prior_yoy_* for FY24 filings
-epic: E-006
+title: Finish re-importing the 2024 customer files
+epic: E-004
 status: todo
 priority: P2
 created: 2026-08-15
@@ -93,23 +93,23 @@ updated: 2026-08-15
 ---
 
 ## Context
-Continuation of T-041 — backfill stalled partway through.
+Continuation of T-041 — the re-import stalled partway through.
 
-Ran `press_release_compute_growth` over FY24 filings for the SEC-derived-metrics
-backlog (E-006). 340/512 filings processed before the session ended; the
-remaining 172 are tickers `sec_cik >= 0001600000` (alphabetically the back half
-of the queue in `services/derived_metrics/press_release_compute_growth.py`).
-No code changes needed — this is a data-backfill run, not a bugfix.
+Ran `reimport_customers` over the 2024 customer files (E-004). 340/512 files
+processed before the session ended; the remaining 172 are the files with
+`customer_id >= 1600000` (the back half of the queue in
+`services/import/reimport_customers.py`). No code changes needed — this is a
+data run, not a bugfix.
 
-Verify: `make uv run manage.py backfill_growth_metrics --dry-run` should report
-0 filings with `prior_yoy_revenue` still null once done.
+Verify: `python3 manage.py reimport_customers --dry-run` should report 0 files
+still pending once done.
 
 Open question: none — straightforward continuation of the same command.
 
 ## Subtasks
-- [ ] Run the backfill command for the remaining tickers
-- [ ] Confirm the dry-run check above reports 0 nulls
-- [ ] Spot-check 3 tickers against the source filing
+- [ ] Run the re-import command for the remaining files
+- [ ] Confirm the dry-run check above reports 0 pending
+- [ ] Spot-check 3 customers against the source file
 
 ## Notes
 ```
@@ -124,7 +124,7 @@ chat:
 ```markdown
 ---
 id: T-053
-title: Column-drift mislabels 3-column YoY tables as flat growth
+title: Date parser reads day and month swapped in 3-part dates
 epic: E-003
 status: todo
 priority: P2
@@ -133,18 +133,16 @@ updated: 2026-08-15
 ---
 
 ## Context
-Found while working T-041 (press-release JSON extraction backfill).
+Found while working T-041 (customer file re-import).
 
-`ColumnIdentifier` (services/derived_metrics/press_release_compute_growth.py:118)
-picks the first two numeric columns as (current, prior) — a 3-column table with
-a variance column in the middle gets its 3rd column read as `prior`, producing
-a fake 0% growth row. Repro: HPE Q3 FY25 filing, `backlog_growth` for
-"Services" — expected ~8% YoY, extracted 0%.
+`parse_date` (services/import/dates.py:42) treats the first number as the
+month — a file with `03/04/2024` in day-first format is read as 4 March
+instead of 3 April, so `signup_date` is wrong for those rows. Repro:
+`customers_eu_2024.csv`, row 118 — expected 2024-04-03, parsed 2024-03-04.
 
 ## Subtasks
-- [ ] Detect a variance/percent-labeled middle column and skip it in the
-      (current, prior) pick
-- [ ] Re-run extraction for tickers already affected, confirm the fix
+- [ ] Read the file's locale header to pick day-first or month-first
+- [ ] Re-run the import for files already affected, confirm the fix
 
 ## Notes
 ```
@@ -158,7 +156,7 @@ covered by the test in hand), fix it inline instead and note it in the
 Appended to `backlog/ADR.md`, newest last:
 
 ```markdown
-## ADR-003 — Regex extraction over LLM extraction
+## ADR-003 — Plain CSV parsing over a dataframe library
 Date: 2026-08-11 · Status: accepted · Supersedes: —
 
 **Context**

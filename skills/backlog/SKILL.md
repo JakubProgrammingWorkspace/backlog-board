@@ -221,7 +221,7 @@ If that dig is wide, offer to delegate it — see "Session boundaries".
 
 ## Finishing a task — status: review
 
-`done` is the human's word, not the agent's — it means "Jakub looked at this and
+`done` is the human's word, not the agent's — it means "the human looked at this and
 accepted it," not "the agent believes it's finished." So when the task's work is
 actually finished, check off any subtask boxes still unchecked and set
 **`status: review`** (not `done`), then run `python3 backlog/build.py`. Do this
@@ -378,8 +378,8 @@ nothing else. Leave the original task's own `## Notes` as its history; don't
 reopen it.
 
 **Incidental finding** — an unrelated issue turns up while working something
-else (e.g. a press-release JSON extraction task turns up an unrelated
-extraction bug during testing). Fix it inline only if it's genuinely trivial
+else (e.g. a CSV import task turns up an unrelated
+date-parsing bug during testing). Fix it inline only if it's genuinely trivial
 — a single-expression change, no new behaviour, already covered by the check
 that's running — and note it in the current task's `## Notes`. Anything
 touching a second file, or needing its own test, is not trivial: write it as
