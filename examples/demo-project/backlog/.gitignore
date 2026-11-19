@@ -1,6 +1,8 @@
 # backlog-board: only markdown content here is version-controlled — everything
 # else is generated, local runtime state, or copied-in tooling. See SKILL.md.
+# INDEX.md is generated too (rebuilt at session start), so it is not committed.
 *
 !.gitignore
 !*.md
 !*/
+INDEX.md
