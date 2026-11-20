@@ -78,6 +78,7 @@ h1, h2, h3 { font-family: inherit; font-weight: 700; margin: 0; }
   font: inherit; font-size: 13px; font-weight: 600; padding: 8px 14px; border: none; background: none;
   color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
+.tab[data-tab="manual"] { margin-left: auto; }  /* Manual sits at the right end of the tab bar */
 .tab.active { color: var(--text); border-bottom-color: var(--link); }
 
 main { padding: 18px 24px 40px; }

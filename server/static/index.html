@@ -81,10 +81,13 @@
         <tr><th>Status</th><th>Meaning</th></tr>
         <tr><td><code>investigate</code></td><td>Needs research or is stuck on something external.</td></tr>
         <tr><td><code>todo</code></td><td>Planned, not started. <code>inprogress</code> is accepted as an alias and treated exactly like <code>todo</code>.</td></tr>
-        <tr><td><code>doing</code></td><td>Being worked on right now (tied to a Claude session).</td></tr>
+        <tr><td><code>doing</code></td><td>Being worked on right now. The session claims it first, so a second live session can&rsquo;t take it; the card shows the branch.</td></tr>
         <tr><td><code>review</code></td><td>Work finished, waiting for a human to look at it.</td></tr>
         <tr><td><code>done</code></td><td>Accepted. Epic status is derived from its tasks, never set by hand.</td></tr>
       </table>
+
+      <h2>Waiting on you</h2>
+      <p>An <code>investigate</code> task carries <code>needs:</code> &mdash; <code>research</code> (the agent digs), <code>decision</code> (a design choice), <code>external</code> (waiting outside the repo) or <code>input</code> (keys, access, data). The session start lists tasks that wait on you (<code>input</code>, plus <code>decision</code> while decisions are <code>ask</code>). Set <code>decisions: auto</code> on a task or epic (or <code>"decisions"</code> in the config) to let the agent decide and record an ADR itself. Task files also have a <code>## Done when</code> section: the checks to test at review time.</p>
 
       <h2>Commands</h2>
       <table>
@@ -94,6 +97,7 @@
         <tr><td><code>backlog</code> skill</td><td>Triggered by plain language: add a task/epic, &ldquo;what&rsquo;s next&rdquo;, change status, record an ADR, check progress.</td></tr>
         <tr><td><code>python3 backlog/build.py</code></td><td>Regenerates <code>INDEX.md</code> and validates the backlog (known statuses, duplicate ids). Run after any file change.</td></tr>
         <tr><td><code>python3 backlog/build.py --new task</code></td><td>Prints a fresh random <code>id:</code> and <code>created:</code> for a new task (or <code>epic</code>). Claude uses this instead of picking IDs itself.</td></tr>
+        <tr><td><code>python3 backlog/build.py --claim T-x</code></td><td>Claims a task for this session before work starts; fails if another live session holds it. <code>--release T-x</code> drops the claim, <code>--mine</code> lists this session&rsquo;s claims.</td></tr>
         <tr><td><code>python3 backlog/build.py --archive</code></td><td>Deletes every <code>done</code> task/epic immediately (only git-tracked, clean files). Git history is the archive.</td></tr>
         <tr><td><code>python3 &lt;plugin&gt;/server/serve.py --stop</code></td><td>Stops this project&rsquo;s board server. Other flags: <code>--port N</code>, <code>--dir NAME</code>, <code>--root PATH</code>, <code>--foreground</code>.</td></tr>
       </table>
@@ -102,23 +106,25 @@
       <p>Runs when a Claude Code session starts, and again once per calendar day while the board stays up.</p>
       <ul>
         <li><b>Board server</b> starts at session start and stops at session end (when the last session for the project closes).</li>
-        <li><b>Review auto-accept:</b> a <code>review</code> task untouched for <code>review_after_days</code> (default 1 working day, measured from <code>updated:</code>) becomes <code>done</code> with <code>completed:</code> stamped.</li>
+        <li><b>Review auto-accept</b> (any branch by default, see <code>review_auto_accept_branches</code>): a <code>review</code> task untouched for <code>review_after_days</code> (default 1 working day, measured from <code>updated:</code>) becomes <code>done</code> with <code>completed:</code> stamped.</li>
         <li><b>Old tasks removal:</b> <code>done</code> tasks and epics older than <code>archive_after_days</code> (default 7 working days, from <code>completed:</code>) are deleted. Only git-tracked, clean files are removed, so everything is recoverable from git.</li>
         <li><b>Auto-commit:</b> the deletion is committed on its own as <code>Backlog tasks update YYYY-MM-DD</code>, touching only the deleted files.</li>
         <li><b>Collision-proof IDs:</b> new tasks get random IDs like <code>T-k7f2m</code> from <code>build.py --new task</code>, so several people or branches can add tasks without clashing. Order comes from <code>created:</code>. Older numeric IDs keep working.</li>
         <li><b>INDEX.md:</b> it is generated and gitignored, so branches never conflict on it; the session start rebuilds it after a pull or merge.</li>
         <li><b>build.py sync:</b> <code>backlog/build.py</code> is overwritten from the plugin at each session start &mdash; don&rsquo;t hand-edit it.</li>
+        <li><b>Parallel sessions:</b> claims live in the git common dir (shared by every worktree, never committed) and vanish when the Claude process exits. If two sessions share one working tree, the later one moves into a <code>task/&lt;id&gt;</code> worktree. A session start lists the tasks other live sessions hold. A worktree reads the main worktree&rsquo;s <code>board.config.json</code>.</li>
         <li><b>Context nudge:</b> while a task is <code>doing</code> and the context grows large, Claude is nudged to wrap up or hand off.</li>
         <li><b>No task IDs in code:</b> Claude is instructed not to write task/epic IDs into code or comments, since task files get deleted.</li>
       </ul>
       <p>Recover a deleted task: <code>git log --all --diff-filter=D --name-only -- 'backlog/tasks/T-051-*'</code>, then <code>git show &lt;sha&gt;^:&lt;path&gt;</code>.</p>
 
       <h2>Working in a team</h2>
+      <p>Set <code>"team": true</code> in <code>board.config.json</code>: every board otherwise runs the review auto-accept and the cleanup on its own machine. <code>team</code> turns <code>review_auto_accept</code>, <code>archive_enabled</code> and <code>auto_commit</code> off by default (a key set explicitly still wins).</p>
       <ul>
         <li>IDs are random and <code>INDEX.md</code> is gitignored, so concurrent work doesn&rsquo;t clash.</li>
         <li>Cleanup only runs on <code>main</code>/<code>master</code> (see <code>auto_commit_branches</code>) and never mid rebase or merge. A failed cleanup commit prints a warning at session start.</li>
-        <li>Review auto-accept runs on every machine, so set <code>"review_auto_accept": false</code> if several people review.</li>
-        <li><code>board.config.json</code> is gitignored; share it with <code>git add -f</code>. Task status is per branch; there is no assignee field.</li>
+        <li>Convention: flip <code>doing</code>/<code>review</code> on the feature branch in the same commits as the code; accept (<code>done</code>) on <code>main</code>.</li>
+        <li><code>board.config.json</code> is gitignored; share it with <code>git add -f</code>. Task status is per branch; claims are per clone, so they don&rsquo;t cross machines; there is no assignee field.</li>
       </ul>
 
       <h2>Updating the plugin</h2>
@@ -136,10 +142,12 @@
       <table>
         <tr><th>Key</th><th>Default</th><th>Meaning</th></tr>
         <tr><td><code>port</code></td><td>3201</td><td>Board port. <code>--port</code> flag wins over this.</td></tr>
+        <tr><td><code>team</code></td><td>false</td><td>Shared-repo switch: makes <code>review_auto_accept</code>, <code>archive_enabled</code> and <code>auto_commit</code> default to <code>false</code>.</td></tr>
         <tr><td><code>review_after_days</code></td><td>1</td><td>Working days before a silent <code>review</code> task auto-promotes to <code>done</code>.</td></tr>
-        <tr><td><code>review_auto_accept</code></td><td>true</td><td><code>false</code> makes <code>review</code> a human-only gate.</td></tr>
+        <tr><td><code>review_auto_accept</code></td><td>true</td><td><code>false</code> makes <code>review</code> a human-only gate. Off by default with <code>team</code>.</td></tr>
+        <tr><td><code>review_auto_accept_branches</code></td><td>"*"</td><td>Branches where review auto-accept runs. A string names one branch, a list several.</td></tr>
         <tr><td><code>archive_after_days</code></td><td>7</td><td>Working days (weekends excluded) after <code>completed:</code> before a <code>done</code> item is deleted.</td></tr>
-        <tr><td><code>auto_commit_branches</code></td><td>["main","master"]</td><td>Branches where the cleanup runs (delete + commit). <code>"*"</code> allows any. Never runs mid rebase/merge or on a detached HEAD.</td></tr>
+        <tr><td><code>auto_commit_branches</code></td><td>["main","master"]</td><td>Branches where the cleanup runs (delete + commit); review auto-accept has its own list. <code>"*"</code> allows any. Never runs mid rebase/merge or on a detached HEAD.</td></tr>
         <tr><td><code>archive_enabled</code></td><td>true</td><td><code>false</code> turns off the automatic deletion.</td></tr>
         <tr><td><code>auto_commit</code></td><td>true</td><td><code>false</code> deletes without committing.</td></tr>
         <tr><td><code>nudge_at_tokens</code></td><td>120000</td><td>Context size where the wrap-up nudge starts.</td></tr>
@@ -147,6 +155,7 @@
         <tr><td><code>require_deferral_links</code></td><td>false</td><td><code>true</code>: <code>build.py</code> refuses a <code>done</code>/<code>review</code> task with an unchecked subtask that doesn&rsquo;t name a filed follow-up task.</td></tr>
       </table>
 <pre>{
+  "team": false,
   "port": 3201,
   "review_after_days": 1,
   "review_auto_accept": true,
@@ -154,6 +163,7 @@
   "archive_enabled": true,
   "auto_commit": true,
   "auto_commit_branches": ["main", "master"],
+  "review_auto_accept_branches": "*",
   "nudge_at_tokens": 120000,
   "nudge_every_tokens": 25000,
   "require_deferral_links": false

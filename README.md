@@ -134,6 +134,7 @@ backlog/
   .gitignore          # generated — enforces "only .md files committed" below
   .board              # gitignored — written by the running board server (pid, port)
   .board-sessions     # gitignored — pids of the Claude sessions with this project open
+                      # (live task claims are not here — they live in the git common dir)
   .board-nudge        # gitignored — last context-token count the context-nudge hook fired at
   epics/E-001-slug.md
   tasks/T-014-slug.md
@@ -155,7 +156,7 @@ epics, tasks, and ADR entries. Task status is one of:
 |---|---|
 | `investigate` | Not yet actionable — scope depends on a decision, an investigation, a websearch, or something concrete and external is stopping otherwise-understood work (another task, a missing credential, a vendor fix). |
 | `todo` | Understood and ready to pick up, just not started. `inprogress` is accepted as an alias and treated exactly like `todo`. |
-| `doing` | Actively being worked. |
+| `doing` | Actively being worked. The session claims the task first (`build.py --claim`), so a parallel session can't take it. |
 | `review` | The agent believes the work is finished; awaiting human acceptance. Auto-promotes to `done` after an idle window unless a human accepts (or rejects) it first. |
 | `done` | A human has looked at the work and accepted it. |
 
@@ -358,7 +359,7 @@ it yourself if the team should share settings):
 An `investigate` task carries `needs:` — `research` (agent digs), `decision` (a design
 choice), `external` (waiting outside the repo) or `input` (keys/access/data). The
 `SessionStart` hook prints one line listing tasks that wait on *you* (`input`, plus
-`decision` while the mode is `ask`); `research`/`external` stay quiet. Task files also
+`decision` while the mode is `ask`); `research`/`external` stay quiet. A second `SessionStart` line lists tasks other live sessions have claimed. Task files also
 get a `## Done when` section — the checks you test against at review time.
 
 ## Regenerating INDEX.md
