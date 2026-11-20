@@ -145,12 +145,12 @@ def test_new_id_format_and_uniqueness(build):
 def test_new_id_retries_on_clash(build):
     class Rng:  # first candidate collides with an existing id, second is free
         def __init__(self):
-            self.seq = iter("22222" + "33333")
+            self.seq = iter("2222222" + "3333333")
 
         def choice(self, _alphabet):
             return next(self.seq)
 
-    assert build.new_id([{"id": "T-22222"}], "T", rng=Rng()) == "T-33333"
+    assert build.new_id([{"id": "T-2222222"}], "T", rng=Rng()) == "T-3333333"
 
 
 def test_mixed_legacy_and_random_ids_sort_by_created(build, backlog, put):
