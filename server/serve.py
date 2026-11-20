@@ -218,8 +218,7 @@ def configured_auto_commit_branches(backlog_dir: Path):
 
 def configured_auto_commit(backlog_dir: Path) -> bool:
     """{"auto_commit": bool} in board.config.json; default True."""
-    v = _read_config(backlog_dir).get("auto_commit")
-    return True if v is None else bool(v)
+    return _flag(backlog_dir, "auto_commit")
 
 
 def remove_empty_archive_dirs(backlog_dir: Path):
@@ -326,6 +325,15 @@ def _read_config(backlog_dir: Path) -> dict:
         return {}
 
 
+def _flag(backlog_dir: Path, key: str) -> bool:
+    """An automation switch that defaults on for a solo user and off with
+    {"team": true} (every teammate's board would otherwise sweep, auto-accept and
+    commit on their own machine). An explicit value for the key always wins."""
+    cfg = _read_config(backlog_dir)
+    v = cfg.get(key)
+    return (not cfg.get("team")) if v is None else bool(v)
+
+
 def configured_port(backlog_dir: Path):
     """Read {"port": N} from board.config.json, if present."""
     port = _read_config(backlog_dir).get("port")
@@ -347,8 +355,7 @@ def configured_archive_days(backlog_dir: Path):
 def configured_archive_enabled(backlog_dir: Path) -> bool:
     """Read {"archive_enabled": bool} from board.config.json. Defaults to True — the
     automatic startup sweep runs unless explicitly turned off."""
-    enabled = _read_config(backlog_dir).get("archive_enabled")
-    return True if enabled is None else bool(enabled)
+    return _flag(backlog_dir, "archive_enabled")
 
 
 def configured_review_days(backlog_dir: Path):
@@ -364,8 +371,7 @@ def configured_review_auto_accept(backlog_dir: Path) -> bool:
     """Read {"review_auto_accept": bool} from board.config.json. Defaults to True — a
     `review` task left untouched auto-promotes to `done` after review_after_days unless
     explicitly turned off (a hard human-gate for anyone who wants one)."""
-    enabled = _read_config(backlog_dir).get("review_auto_accept")
-    return True if enabled is None else bool(enabled)
+    return _flag(backlog_dir, "review_auto_accept")
 
 
 def configured_decisions(backlog_dir: Path) -> str:
@@ -578,10 +584,14 @@ def _run_sweeps(backlog_dir: Path):
     stale review -> done first, then delete stale done, so a task promoted
     this pass can't also archive in the same pass (its completed: is today).
     Does nothing mid rebase/merge or on a detached HEAD (it would tangle with the
-    operation); resumes at the next session start."""
+    operation), nor off the configured branches (feature branches keep their task
+    files untouched); resumes at the next session start."""
     branch, busy = git_context(backlog_dir)
     if busy:
         return
+    allowed = configured_auto_commit_branches(backlog_dir)
+    if branch is not None and "*" not in allowed and branch not in allowed:
+        return  # both sweeps edit task files, so they only run on the configured branches
     if configured_review_auto_accept(backlog_dir):
         days = configured_review_days(backlog_dir)
         if days is None:
@@ -593,9 +603,6 @@ def _run_sweeps(backlog_dir: Path):
 
     if not configured_archive_enabled(backlog_dir):
         return
-    allowed = configured_auto_commit_branches(backlog_dir)
-    if branch is not None and "*" not in allowed and branch not in allowed:
-        return  # retention only runs on the configured branches (default main/master)
     days = configured_archive_days(backlog_dir)
     if days is None:
         days = DEFAULT_ARCHIVE_AFTER_DAYS

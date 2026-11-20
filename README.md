@@ -245,17 +245,34 @@ coming up somewhere unexpected. Fix it by freeing the port, or pointing
 
 ## Working in a team
 
+Set `{"team": true}` in `board.config.json`. Every board otherwise runs the review
+auto-accept and the retention sweep on its own machine, so one person's board can
+accept a task a teammate is still reviewing, and every machine commits its own
+`Backlog tasks update` to main. `team` turns those off (set a key explicitly to turn
+it back on).
+
 - **IDs** are random, so people and branches can add tasks concurrently without clashing,
   and `INDEX.md` is gitignored, so it never conflicts.
-- **Retention** (deleting old `done` items and committing that) runs only on `main` and
-  `master` by default (`auto_commit_branches`), and never mid rebase/merge/cherry-pick or
-  on a detached `HEAD`. If a cleanup commit fails, the board warns at session start.
-- **Review auto-accept** runs on every machine, so one person's board can promote a task
-  another person is still reviewing. Teams should set `"review_auto_accept": false`.
+- **The sweeps** (auto-accept and retention) run only on `main`/`master` by default
+  (`auto_commit_branches`), and never mid rebase/merge/cherry-pick or on a detached
+  `HEAD`, so a feature branch's task files are never touched behind your back.
+- **Convention:** flip `doing`/`review` on the feature branch, in the same commits as
+  the code, so merging delivers both. Accept (`done`) on `main`.
 - **Shared settings:** `board.config.json` is gitignored, so each person has their own.
   Commit it with `git add -f backlog/board.config.json` if the team should share it.
 - A task's `status` lives in its file, so it is per branch; the board shows what is
-  checked out. There is no assignee field.
+  checked out. Live claims (below) are per clone, so they don't cross machines, and
+  there is no assignee field.
+
+### Several agents at once
+
+Parallel Claude sessions in one project claim a task before starting it
+(`build.py --claim T-x`). The claim lives in the git common dir, shared by every
+worktree and never committed, so a second session can't take a task another live
+session holds, and the board shows the branch on the card. If two sessions share one
+working tree, the later one moves into a `task/<id>` worktree. Claims disappear when
+the Claude process exits. A linked worktree reads the main worktree's
+`board.config.json` and `.backlogrc.json`, so settings follow you into it.
 
 ## Updating
 
@@ -305,11 +322,12 @@ it yourself if the team should share settings):
 |---|---|---|
 | `port` | `3201` | Board server port. Precedence: `--port` flag > this file > default. |
 | `review_after_days` | `1` | Age in working days (from `updated:`, weekends excluded) after which a `review` task auto-promotes to `done`. |
-| `review_auto_accept` | `true` | Turns the automatic review-acceptance sweep off — `review` becomes a hard human-only gate. |
-| `auto_commit` | `true` | After the sweep deletes items, commit just those deletions as `Backlog tasks update <YYYY-MM-DD>`. |
+| `team` | `false` | One switch for shared repos: makes `review_auto_accept`, `archive_enabled` and `auto_commit` default to `false`, so no teammate's board edits or commits task files on its own. Any of those keys set explicitly still wins. |
+| `review_auto_accept` | `true` (`false` with `team`) | Turns the automatic review-acceptance sweep off — `review` becomes a hard human-only gate. |
+| `auto_commit` | `true` (`false` with `team`) | After the sweep deletes items, commit just those deletions as `Backlog tasks update <YYYY-MM-DD>`. |
 | `archive_after_days` | `7` | Age in working days (from `completed:`, weekends excluded) after which the startup sweep deletes a `done` item (recoverable from git). |
 | `auto_commit_branches` | `["main", "master"]` | Branches on which the retention sweep (delete + commit) runs. A string names one branch; `"*"` allows any. On other branches nothing is deleted, so cleanup commits don't litter feature branches. |
-| `archive_enabled` | `true` | Turns the automatic startup sweep off. Manual `build.py --archive` still works either way. |
+| `archive_enabled` | `true` (`false` with `team`) | Turns the automatic startup sweep off. Manual `build.py --archive` still works either way. |
 | `nudge_at_tokens` | `120000` | Context size (real token count) at which the session-boundary nudge starts firing. |
 | `nudge_every_tokens` | `25000` | How much further context has to grow before the nudge fires again. |
 | `decisions` | `"ask"` | Who makes design decisions by default: `ask` = the agent asks you (`investigate` + `needs: decision`); `auto` = the agent decides and records an ADR (`Decided by: agent (auto)`) — for POCs and quick features. Override per epic or per task with a `decisions:` frontmatter field (task > epic > config). `auto` never covers pushing/deploying, spending, deleting data or anything outside the repo. |
@@ -317,6 +335,7 @@ it yourself if the team should share settings):
 
 ```json
 {
+  "team": false,
   "port": 3201,
   "review_after_days": 1,
   "review_auto_accept": true,

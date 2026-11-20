@@ -22,6 +22,7 @@ backlog/
   ADR.md              # append-only decision log
   board.config.json   # optional — {"port": N, "archive_after_days": N,
                       #   "auto_commit": bool, "auto_commit_branches": [..], "archive_enabled": bool,
+                      #   "team": bool (shared repo: sweeps/auto-accept off by default),
                       #   "nudge_at_tokens": N, "nudge_every_tokens": N,
                       #   "decisions": "ask"|"auto"}, gitignored
   .gitignore          # generated — enforces the only-.md policy above

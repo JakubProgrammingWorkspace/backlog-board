@@ -218,3 +218,28 @@ def test_config_and_marker_fall_back_in_worktree(serve, backlog, put, git_repo, 
     wt = tmp_path.parent / (tmp_path.name + "-wt3")
     git_repo("worktree", "add", "-q", "-b", "task/z", str(wt))
     assert serve.configured_port(wt / "backlog") == 4242
+
+
+def test_review_promotion_skipped_on_feature_branch(serve, backlog, put, git_repo):
+    put(backlog, "tasks", "T-001-r.md", id="T-001", status="review", updated="2020-01-01")
+    git_repo("add", "-A")
+    git_repo("commit", "-qm", "init")
+    git_repo("checkout", "-qb", "feature")
+    serve._run_sweeps(backlog)
+    assert "status: review" in (backlog / "tasks/T-001-r.md").read_text()
+    git_repo("checkout", "-q", "main")
+    serve._run_sweeps(backlog)
+    assert "status: done" in (backlog / "tasks/T-001-r.md").read_text()
+
+
+def test_team_flag_turns_automation_off_but_explicit_wins(serve, backlog):
+    assert serve.configured_review_auto_accept(backlog) is True  # solo defaults unchanged
+    assert serve.configured_archive_enabled(backlog) is True
+    assert serve.configured_auto_commit(backlog) is True
+    (backlog / "board.config.json").write_text('{"team": true}')
+    assert serve.configured_review_auto_accept(backlog) is False
+    assert serve.configured_archive_enabled(backlog) is False
+    assert serve.configured_auto_commit(backlog) is False
+    (backlog / "board.config.json").write_text('{"team": true, "archive_enabled": true}')
+    assert serve.configured_archive_enabled(backlog) is True
+    assert serve.configured_review_auto_accept(backlog) is False
