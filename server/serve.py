@@ -206,14 +206,27 @@ def git_context(backlog_dir: Path):
     return (None if detached else branch.stdout.strip()), busy or detached
 
 
+def _branch_list(v, default):
+    return default if v is None else [v] if isinstance(v, str) else [str(x) for x in v]
+
+
 def configured_auto_commit_branches(backlog_dir: Path):
     """{"auto_commit_branches": ["main", "master"]}: the retention sweep (delete + commit)
     only runs on these branches, so cleanup commits don't litter feature branches. A
     string is accepted for one branch; "*" allows any branch."""
-    v = _read_config(backlog_dir).get("auto_commit_branches")
-    if v is None:
-        return ["main", "master"]
-    return [v] if isinstance(v, str) else [str(x) for x in v]
+    return _branch_list(_read_config(backlog_dir).get("auto_commit_branches"), ["main", "master"])
+
+
+def configured_review_branches(backlog_dir: Path):
+    """{"review_auto_accept_branches": "*"}: branches the review auto-accept sweep runs
+    on. Defaults to any branch — it only flips a task's own status, and a parallel agent
+    working on a task/<id> branch still wants its stale review accepted. Same shapes as
+    auto_commit_branches."""
+    return _branch_list(_read_config(backlog_dir).get("review_auto_accept_branches"), ["*"])
+
+
+def _branch_allowed(branch, allowed) -> bool:
+    return branch is None or "*" in allowed or branch in allowed
 
 
 def configured_auto_commit(backlog_dir: Path) -> bool:
@@ -584,15 +597,14 @@ def _run_sweeps(backlog_dir: Path):
     stale review -> done first, then delete stale done, so a task promoted
     this pass can't also archive in the same pass (its completed: is today).
     Does nothing mid rebase/merge or on a detached HEAD (it would tangle with the
-    operation), nor off the configured branches (feature branches keep their task
-    files untouched); resumes at the next session start."""
+    operation). Each sweep also has its own branch list: review_auto_accept_branches
+    (default any) and auto_commit_branches (default main/master). Resumes at the next
+    session start."""
     branch, busy = git_context(backlog_dir)
     if busy:
         return
-    allowed = configured_auto_commit_branches(backlog_dir)
-    if branch is not None and "*" not in allowed and branch not in allowed:
-        return  # both sweeps edit task files, so they only run on the configured branches
-    if configured_review_auto_accept(backlog_dir):
+    if (configured_review_auto_accept(backlog_dir)
+            and _branch_allowed(branch, configured_review_branches(backlog_dir))):
         days = configured_review_days(backlog_dir)
         if days is None:
             days = DEFAULT_REVIEW_AFTER_DAYS
@@ -603,6 +615,8 @@ def _run_sweeps(backlog_dir: Path):
 
     if not configured_archive_enabled(backlog_dir):
         return
+    if not _branch_allowed(branch, configured_auto_commit_branches(backlog_dir)):
+        return  # retention deletes and commits, so it only runs on the configured branches
     days = configured_archive_days(backlog_dir)
     if days is None:
         days = DEFAULT_ARCHIVE_AFTER_DAYS

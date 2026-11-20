@@ -220,11 +220,23 @@ def test_config_and_marker_fall_back_in_worktree(serve, backlog, put, git_repo, 
     assert serve.configured_port(wt / "backlog") == 4242
 
 
-def test_review_promotion_skipped_on_feature_branch(serve, backlog, put, git_repo):
+def test_review_promotion_runs_on_any_branch_by_default_but_retention_does_not(serve, backlog, put, git_repo):
+    put(backlog, "tasks", "T-001-r.md", id="T-001", status="review", updated="2020-01-01")
+    put(backlog, "tasks", "T-002-d.md", id="T-002", status="done", completed="2020-01-01")
+    git_repo("add", "-A")
+    git_repo("commit", "-qm", "init")
+    git_repo("checkout", "-qb", "feature")
+    serve._run_sweeps(backlog)
+    assert "status: done" in (backlog / "tasks/T-001-r.md").read_text()
+    assert (backlog / "tasks/T-002-d.md").exists()  # retention stays on main/master
+
+
+def test_review_branch_list_in_config(serve, backlog, put, git_repo):
     put(backlog, "tasks", "T-001-r.md", id="T-001", status="review", updated="2020-01-01")
     git_repo("add", "-A")
     git_repo("commit", "-qm", "init")
     git_repo("checkout", "-qb", "feature")
+    (backlog / "board.config.json").write_text('{"review_auto_accept_branches": ["main"]}')
     serve._run_sweeps(backlog)
     assert "status: review" in (backlog / "tasks/T-001-r.md").read_text()
     git_repo("checkout", "-q", "main")

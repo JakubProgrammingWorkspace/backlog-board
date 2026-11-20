@@ -253,9 +253,10 @@ it back on).
 
 - **IDs** are random, so people and branches can add tasks concurrently without clashing,
   and `INDEX.md` is gitignored, so it never conflicts.
-- **The sweeps** (auto-accept and retention) run only on `main`/`master` by default
-  (`auto_commit_branches`), and never mid rebase/merge/cherry-pick or on a detached
-  `HEAD`, so a feature branch's task files are never touched behind your back.
+- **The sweeps** never run mid rebase/merge/cherry-pick or on a detached `HEAD`.
+  Retention (delete + commit) runs only on `main`/`master` by default
+  (`auto_commit_branches`). Review auto-accept runs on any branch by default
+  (`review_auto_accept_branches`); teams on `team: true` have it off anyway.
 - **Convention:** flip `doing`/`review` on the feature branch, in the same commits as
   the code, so merging delivers both. Accept (`done`) on `main`.
 - **Shared settings:** `board.config.json` is gitignored, so each person has their own.
@@ -327,6 +328,7 @@ it yourself if the team should share settings):
 | `auto_commit` | `true` (`false` with `team`) | After the sweep deletes items, commit just those deletions as `Backlog tasks update <YYYY-MM-DD>`. |
 | `archive_after_days` | `7` | Age in working days (from `completed:`, weekends excluded) after which the startup sweep deletes a `done` item (recoverable from git). |
 | `auto_commit_branches` | `["main", "master"]` | Branches on which the retention sweep (delete + commit) runs. A string names one branch; `"*"` allows any. On other branches nothing is deleted, so cleanup commits don't litter feature branches. |
+| `review_auto_accept_branches` | `"*"` | Branches on which the review auto-accept sweep runs. Defaults to any branch (it only flips a task's own status). A string names one branch; a list names several. |
 | `archive_enabled` | `true` (`false` with `team`) | Turns the automatic startup sweep off. Manual `build.py --archive` still works either way. |
 | `nudge_at_tokens` | `120000` | Context size (real token count) at which the session-boundary nudge starts firing. |
 | `nudge_every_tokens` | `25000` | How much further context has to grow before the nudge fires again. |
@@ -343,6 +345,7 @@ it yourself if the team should share settings):
   "archive_enabled": true,
   "auto_commit": true,
   "auto_commit_branches": ["main", "master"],
+  "review_auto_accept_branches": "*",
   "nudge_at_tokens": 120000,
   "nudge_every_tokens": 25000,
   "decisions": "ask",
