@@ -715,18 +715,29 @@ def selftest():
     print("selftest OK")
 
 
+def _own_backlog_dir() -> Path:
+    """This file's folder, which must be a backlog data dir. Run from the plugin source
+    (skills/backlog/) there is no tasks/ here, and writing INDEX.md/.gitignore into the
+    repo would just litter it."""
+    d = Path(__file__).resolve().parent
+    if not (d / "tasks").is_dir():
+        raise SystemExit(f"backlog: {d} has no tasks/ dir — build.py is meant to run from a "
+                         f"project's backlog/ (see reference/init.md)")
+    return d
+
+
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         selftest()
     elif "--new" in sys.argv:
-        run_new(Path(__file__).resolve().parent, sys.argv[sys.argv.index("--new") + 1:])
+        run_new(_own_backlog_dir(), sys.argv[sys.argv.index("--new") + 1:])
     elif "--claim" in sys.argv:
-        run_claim(Path(__file__).resolve().parent, sys.argv[sys.argv.index("--claim") + 1:])
+        run_claim(_own_backlog_dir(), sys.argv[sys.argv.index("--claim") + 1:])
     elif "--mine" in sys.argv:
-        run_mine(Path(__file__).resolve().parent)
+        run_mine(_own_backlog_dir())
     elif "--release" in sys.argv:
-        run_claim(Path(__file__).resolve().parent, sys.argv[sys.argv.index("--release") + 1:], release=True)
+        run_claim(_own_backlog_dir(), sys.argv[sys.argv.index("--release") + 1:], release=True)
     elif "--archive" in sys.argv:
-        run_archive(Path(__file__).resolve().parent)
+        run_archive(_own_backlog_dir())
     else:
-        run(Path(__file__).resolve().parent)
+        run(_own_backlog_dir())
