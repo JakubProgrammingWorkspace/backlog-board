@@ -94,7 +94,7 @@ work, e.g. another task"). The full backlog is in [`examples/demo-project`](exam
    ```
 
 2. **A session picks work.** Claude reads `INDEX.md`, takes a `todo` task, sets it
-   `doing` (stamping `session_id:`), and works through the `## Subtasks`.
+   claims it (`build.py --claim`), sets it `doing`, and works through the `## Subtasks`.
 3. **It finishes.** Claude sets `review` (never `done` — that is the human's word),
    runs `build.py`, and offers a fresh session with a paste-ready `work T-0xx` line.
 4. **You accept.** You set `status: done` and `completed:`, or leave it: after

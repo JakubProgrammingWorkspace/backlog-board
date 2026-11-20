@@ -6,9 +6,9 @@ Use when the user asks to "stop here", "hand off", or "wrap up this session" whi
 task is still `doing` — not for a task that's actually finished (that's the normal
 `review` flow in the `backlog` skill, see "Session boundaries" in its `SKILL.md`).
 
-1. Find the task on this session: the `doing` row in `backlog/INDEX.md` whose
-   `session_id` matches `$CLAUDE_CODE_SESSION_ID`. If none, say so and stop — there's
-   nothing to hand off.
+1. Find the task on this session: `python3 backlog/build.py --mine` lists the tasks
+   this session has claimed; take the one that is `doing` in `backlog/INDEX.md`. If
+   none, say so and stop — there's nothing to hand off.
 2. Write a new task per the "Continuation task" template in
    `skills/backlog/reference/templates.md`: `status: todo`, body opening
    `Continuation of T-0xx — <what remains>`, and a **fresh-session brief** in

@@ -122,7 +122,7 @@
     const pct = t.total ? Math.round((100 * t.done) / t.total) : 0;
     const archived = isArchived(t.path);
     const sessionTag = t.status === "doing" && t.session_id
-      ? ` · <span class="session-tag" title="session ${escapeHtml(t.session_id)}">${escapeHtml(t.session_id.slice(0, 8))}</span>` : "";
+      ? ` · <span class="session-tag" title="session ${escapeHtml(t.session_id)}">${escapeHtml(t.branch || t.session_id.slice(0, 8))}</span>` : "";
     const reviewLabel = reviewCountdownLabel(t);
     const reviewTag = reviewLabel
       ? ` · <span class="review-tag" title="auto-promotes to done unless reviewed first">${reviewLabel}</span>` : "";

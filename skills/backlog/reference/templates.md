@@ -41,8 +41,6 @@ updated: 2026-08-11
 completed:              # set to today's date alongside status: done — by a human
                          # accepting a review task, or by the board server's
                          # auto-accept sweep — drives the retention sweep, see SKILL.md
-session_id:              # set to $CLAUDE_CODE_SESSION_ID alongside status: doing —
-                         # which session is (or was last) working this task
 docs: docs/import-open-concerns.md#quoted-commas
 needs:                   # only while status: investigate: research | decision |
                          # external | input — see SKILL.md; removed when it resolves

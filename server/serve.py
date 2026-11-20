@@ -11,6 +11,7 @@ Usage:
     python3 serve.py --dir NAME       # backlog data dirname, if not "backlog" (see .backlogrc.json)
     python3 serve.py --foreground     # stay attached, for debugging
     python3 serve.py --context-nudge  # UserPromptSubmit hook: warn on large context
+    python3 serve.py --active-sessions  # SessionStart hook: name tasks other sessions have claimed
     python3 serve.py --selftest       # parser asserts + live SSE smoke test, no writes
 """
 import os
@@ -25,6 +26,7 @@ import subprocess
 import argparse
 import threading
 import contextlib
+import functools
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -33,6 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DEFAULT_PORT = 3201
 CONFIG_FILENAME = "board.config.json"
+CLAIMS_NAME = "backlog-claims.json"  # live task claims, in the git common dir — see build.py
 DECISION_MODES = ("ask", "auto")
 NEEDS_VALUES = ("research", "decision", "external", "input")
 SESSIONS_FILENAME = ".board-sessions"  # pids of the Claude processes with this project
@@ -252,6 +255,9 @@ def resolve_backlog_dirname(root: Path, override=None) -> str:
     if override:
         return override
     marker = root / BACKLOG_DIR_MARKER
+    if not marker.is_file() and (root / ".git").is_file():  # linked worktree: marker is gitignored
+        main = _main_equivalent(root)
+        marker = main / BACKLOG_DIR_MARKER if main else marker
     if marker.is_file():
         try:
             name = json.loads(marker.read_text()).get("dir")
@@ -276,10 +282,42 @@ def find_project_root(start: Path, dir_override=None):
     return None, None
 
 
+def _git(path: Path, *args):
+    """stdout of `git -C path ...`, or None outside git / on any failure."""
+    try:
+        r = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True)
+    except OSError:
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+@functools.lru_cache(maxsize=None)
+def _main_equivalent(path: Path):
+    """`path`'s counterpart in the repo's main worktree when `path` sits in a linked
+    worktree (gitignored config and the rename marker don't exist in a fresh one), else
+    None. build.py has the same helper — the two files never import each other."""
+    out = _git(path, "rev-parse", "--git-common-dir", "--show-toplevel")
+    if not out:
+        return None
+    common, _, top = out.strip().partition("\n")
+    common = (path / common).resolve()
+    if common.name != ".git" or not top:
+        return None
+    try:
+        main = common.parent / path.resolve().relative_to(Path(top).resolve())
+    except ValueError:
+        return None
+    return main if main != path.resolve() else None
+
+
 def _read_config(backlog_dir: Path) -> dict:
-    """Parse board.config.json, if present. Empty dict on any problem (missing file, bad
-    JSON) so callers fall back to their own defaults instead of crashing the launcher."""
+    """Parse board.config.json, if present — in a linked worktree with none of its own,
+    the main worktree's. Empty dict on any problem (missing file, bad JSON) so callers
+    fall back to their own defaults instead of crashing the launcher."""
     config_path = backlog_dir / CONFIG_FILENAME
+    if not config_path.is_file():
+        main = _main_equivalent(backlog_dir)
+        config_path = main / CONFIG_FILENAME if main else config_path
     if not config_path.is_file():
         return {}
     try:
@@ -377,6 +415,35 @@ def waiting_summary(backlog_dir: Path):
     names = ", ".join(f"{t.get('id', '?')} ({t.get('title', '')})" for t in waiting)
     message = (f"Backlog: {len(waiting)} task{'s' if len(waiting) != 1 else ''} wait"
                f"{'' if len(waiting) != 1 else 's'} on you — {names}.")
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "SessionStart", "additionalContext": message}}))
+
+
+# ---- live claims (written by build.py --claim; read-only here) ----
+
+def live_claims(backlog_dir: Path) -> dict:
+    """{task_id: claim} for claims whose Claude process is still alive."""
+    out = _git(backlog_dir, "rev-parse", "--git-common-dir")
+    path = (backlog_dir / out.strip()).resolve() / CLAIMS_NAME if out and out.strip() \
+        else backlog_dir / ".claims"
+    try:
+        claims = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return {t: c for t, c in claims.items()
+            if isinstance(c, dict) and (not c.get("pid") or _pid_alive(c["pid"]))}
+
+
+def active_sessions(backlog_dir: Path):
+    """SessionStart hook path: one line naming tasks other live sessions are on, so this
+    session knows it isn't alone. Silent when there are none."""
+    mine = current_claude_pid()
+    others = {t: c for t, c in live_claims(backlog_dir).items() if c.get("pid") != mine}
+    if not others:
+        return
+    names = ", ".join(f"{t} ({c.get('branch', '?')})" for t, c in sorted(others.items()))
+    message = (f"Backlog: {len(others)} other session(s) active — {names}. Claim a task with "
+               f"`build.py --claim` before starting it; a shared checkout means use a worktree.")
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "SessionStart", "additionalContext": message}}))
 
@@ -664,6 +731,7 @@ class BoardState:
             review_days = DEFAULT_REVIEW_AFTER_DAYS
         default_decisions = configured_decisions(self.backlog_dir)
         epics_by_id = {e.get("id"): e for e in epics}
+        claims = live_claims(self.backlog_dir)
 
         return {
             "root": str(self.project_root),
@@ -683,7 +751,8 @@ class BoardState:
                  "epic": t.get("epic", ""), "status": t.get("status", "todo"),
                  "priority": t.get("priority", "P3"), "created": t.get("created", ""),
                  "updated": t.get("updated", ""), "docs": t.get("docs", ""),
-                 "session_id": t.get("session_id", ""),
+                 "session_id": claims.get(t.get("id"), {}).get("session_id") or t.get("session_id", ""),
+                 "branch": claims.get(t.get("id"), {}).get("branch", ""),
                  "needs": t.get("needs", "") if t.get("status") == "investigate" else "",
                  "decisions": effective_decisions(t, epics_by_id, default_decisions),
                  "done": t["_done"], "total": t["_total"], "body": t.get("_body", ""),
@@ -941,8 +1010,9 @@ def context_nudge(backlog_dir: Path):
     # status == "doing" only — an investigate task (open investigation: a decision,
     # a code dig, a websearch, see SKILL.md's "When a task or epic isn't ready") never
     # matches here, so investigating one never trips this threshold, by construction.
+    mine = {t for t, c in live_claims(backlog_dir).items() if c.get("session_id") == session_id}
     doing = next((t for t in tasks if t.get("status") == "doing"
-                  and t.get("session_id") == session_id), None)
+                  and (t.get("id") in mine or t.get("session_id") == session_id)), None)
     if doing is None:
         return
 
@@ -1742,6 +1812,10 @@ def main(argv=None):
                          help="SessionStart hook path: one line naming investigate tasks "
                               "that wait on the user (needs: input, or needs: decision in "
                               "ask mode) — emits hookSpecificOutput JSON, nothing otherwise")
+    parser.add_argument("--active-sessions", action="store_true",
+                         help="SessionStart hook path: one line naming tasks other live "
+                              "sessions have claimed — emits hookSpecificOutput JSON, "
+                              "nothing otherwise")
     parser.add_argument("--quiet", action="store_true",
                          help="exit 0 with no output for the \"no backlog dir found\" case, "
                               "and (with --stop/--session-end) the \"not running\" case — for a hook "
@@ -1775,6 +1849,9 @@ def main(argv=None):
 
     if args.waiting_summary:
         return waiting_summary(backlog_dir)
+
+    if args.active_sessions:
+        return active_sessions(backlog_dir)
 
     if args.session_end:
         return session_end(backlog_dir, quiet=args.quiet)

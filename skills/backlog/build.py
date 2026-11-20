@@ -6,13 +6,18 @@ Usage:
     python3 backlog/build.py             # rebuild INDEX.md
     python3 backlog/build.py --new task  # print a fresh id + created for a new task (or: epic)
     python3 backlog/build.py --archive   # delete done tasks/epics (git-tracked, clean only), then rebuild
+    python3 backlog/build.py --claim T-x # atomically claim a task for this session (fails if a live session has it)
+    python3 backlog/build.py --release T-x  # drop that claim
+    python3 backlog/build.py --mine      # ids this session has claimed
     python3 backlog/build.py --selftest  # run inline asserts, no filesystem writes
 
 For a live, searchable board, install the backlog-board plugin and run
 `/backlog-board` — see the plugin's server/ (not part of this file, which stays
 dependency-free so it works standalone in a project without the plugin installed).
 """
+import fcntl
 import json
+import os
 import random
 import string
 import re
@@ -99,13 +104,46 @@ def load_items(dir_path, kind):
     return sorted(items, key=_sort_key)
 
 
+def _git(backlog_dir: Path, *args):
+    """stdout of `git -C backlog_dir ...`, or None outside git / on any failure."""
+    try:
+        r = subprocess.run(["git", "-C", str(backlog_dir), *args],
+                           capture_output=True, text=True)
+    except OSError:
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def _main_backlog_dir(backlog_dir: Path):
+    """The same data dir in the repo's main worktree when backlog_dir is a linked
+    worktree's copy (gitignored config/tooling don't exist in a fresh worktree), else
+    None. serve.py has the same helper — the two files never import each other."""
+    out = _git(backlog_dir, "rev-parse", "--git-common-dir", "--show-toplevel")
+    if not out:
+        return None
+    common, _, top = out.strip().partition("\n")
+    common = (backlog_dir / common).resolve()
+    if common.name != ".git" or not top:
+        return None
+    try:
+        rel = backlog_dir.resolve().relative_to(Path(top).resolve())
+    except ValueError:
+        return None
+    main = common.parent / rel
+    return main if main != backlog_dir.resolve() else None
+
+
 def _read_config(backlog_dir: Path) -> dict:
     """Same optional, gitignored board.config.json the board server reads (see
     serve.py's own _read_config) — duplicated rather than imported, since build.py
-    stays a standalone, dependency-free file that works without the plugin installed."""
+    stays a standalone, dependency-free file that works without the plugin installed.
+    In a linked git worktree with no config of its own, the main worktree's is used."""
     cfg = backlog_dir / "board.config.json"
     if not cfg.is_file():
-        return {}
+        main = _main_backlog_dir(backlog_dir)
+        cfg = main / "board.config.json" if main else cfg
+        if not cfg.is_file():
+            return {}
     try:
         return json.loads(cfg.read_text())
     except (json.JSONDecodeError, OSError):
@@ -285,6 +323,132 @@ def archive(backlog_dir: Path, epics, tasks):
         removed.append(src)
     remove_empty_archive_dirs(backlog_dir)
     return removed
+
+
+# ---- live claims: which session is working which task ----
+# Runtime state, not content: kept in the git common dir (shared by every worktree of
+# the repo, never committed) so parallel agents see each other even though each
+# worktree has its own copy of the task files. serve.py reads the same file.
+
+CLAIMS_NAME = "backlog-claims.json"
+
+
+def claims_path(backlog_dir: Path) -> Path:
+    out = _git(backlog_dir, "rev-parse", "--git-common-dir")
+    if out and out.strip():
+        return (backlog_dir / out.strip()).resolve() / CLAIMS_NAME
+    return backlog_dir / ".claims"  # outside git; the backlog .gitignore covers it
+
+
+def _pid_alive(pid) -> bool:
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, ValueError, TypeError):
+        return True
+    return True
+
+
+def update_claims(backlog_dir: Path, fn):
+    """Run fn(claims) on the live claims under an exclusive flock and save the result.
+    Claims whose Claude process died are dropped on every call, so a crashed session
+    never pins a task."""
+    path = claims_path(backlog_dir)
+    with path.open("a+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        try:
+            claims = json.loads(f.read() or "{}")
+        except ValueError:
+            claims = {}
+        claims = {k: v for k, v in claims.items()
+                  if isinstance(v, dict) and (not v.get("pid") or _pid_alive(v["pid"]))}
+        result = fn(claims)
+        f.seek(0)
+        f.truncate()
+        f.write(json.dumps(claims))
+    return result
+
+
+def _me():
+    """(pid, session_id) of the calling Claude session; either may be empty by hand."""
+    try:
+        pid = int(os.environ.get("CLAUDE_PID", "")) or None
+    except ValueError:
+        pid = None
+    return pid, os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+
+
+def _is_mine(claim, pid, sid) -> bool:
+    # same process = same owner even across /clear (new session id, same pid)
+    return bool((pid and claim.get("pid") == pid) or (sid and claim.get("session_id") == sid))
+
+
+def claim_task(backlog_dir: Path, task_id: str):
+    """Atomically claim task_id. Returns ("taken", claim) when another live session
+    holds it, else ("ok", {"shared": [ids also active in this same checkout],
+    "elsewhere": [(id, branch)]})."""
+    pid, sid = _me()
+    branch = (_git(backlog_dir, "symbolic-ref", "-q", "--short", "HEAD") or "").strip() or "(detached)"
+    here = str(backlog_dir.resolve().parent)
+
+    def go(claims):
+        cur = claims.get(task_id)
+        if cur and not _is_mine(cur, pid, sid):
+            return "taken", cur
+        claims[task_id] = {"session_id": sid, "pid": pid, "branch": branch, "path": here}
+        others = {t: c for t, c in claims.items() if t != task_id and not _is_mine(c, pid, sid)}
+        return "ok", {"shared": sorted(t for t, c in others.items() if c.get("path") == here),
+                      "elsewhere": sorted((t, c.get("branch", "?")) for t, c in others.items()
+                                          if c.get("path") != here)}
+    return update_claims(backlog_dir, go)
+
+
+def release_task(backlog_dir: Path, task_id: str) -> bool:
+    """Drop our claim. False when a different live session owns it (left untouched)."""
+    pid, sid = _me()
+
+    def go(claims):
+        cur = claims.get(task_id)
+        if cur and not _is_mine(cur, pid, sid):
+            return False
+        claims.pop(task_id, None)
+        return True
+    return update_claims(backlog_dir, go)
+
+
+def run_mine(backlog_dir: Path):
+    """Print the ids of the tasks this session has claimed, one per line."""
+    pid, sid = _me()
+    for t in sorted(update_claims(backlog_dir, lambda c: {t: v for t, v in c.items() if _is_mine(v, pid, sid)})):
+        print(t)
+
+
+def run_claim(backlog_dir: Path, args, release=False):
+    if not args:
+        raise SystemExit(f"usage: build.py --{'release' if release else 'claim'} T-xxxxxxx")
+    task_id = args[0]
+    if task_id not in {t.get("id") for t in load_items(backlog_dir / "tasks", "task")}:
+        raise SystemExit(f"backlog: no task {task_id}")
+    if release:
+        if not release_task(backlog_dir, task_id):
+            raise SystemExit(f"backlog: {task_id} is claimed by another live session — not released")
+        print(f"released {task_id}")
+        return
+    status, info = claim_task(backlog_dir, task_id)
+    if status == "taken":
+        raise SystemExit(
+            f"backlog: {task_id} is already claimed by a live session "
+            f"(branch {info.get('branch', '?')}, {info.get('path', '?')}, "
+            f"session {str(info.get('session_id', ''))[:8] or '?'}) — pick another task")
+    print(f"claimed {task_id}")
+    if info["shared"]:
+        print(f"shared checkout: {', '.join(info['shared'])} also active here — isolate: "
+              f"EnterWorktree on a new branch task/{task_id}, copy build.py into its "
+              f"{backlog_dir.name}/, then re-run --claim {task_id} there")
+    if info["elsewhere"]:
+        print("also active elsewhere: " + ", ".join(f"{t} ({b})" for t, b in info["elsewhere"]))
 
 
 GITIGNORE_CONTENT = (
@@ -522,6 +686,32 @@ def selftest():
         ensure_gitignore(backlog_dir, project_root)
         assert (project_root / ".gitignore").read_text().count(".backlogrc.json") == 1
 
+    # claims: a second live session can't take a claimed task; same process can re-claim
+    with tempfile.TemporaryDirectory() as tmp:
+        bd = Path(tmp) / "backlog"
+        (bd / "tasks").mkdir(parents=True)
+        (bd / "tasks" / "T-aaaaaaa-x.md").write_text("---\nid: T-aaaaaaa\n---\n")
+        saved = {k: os.environ.get(k) for k in ("CLAUDE_PID", "CLAUDE_CODE_SESSION_ID")}
+        try:
+            os.environ["CLAUDE_PID"], os.environ["CLAUDE_CODE_SESSION_ID"] = str(os.getpid()), "s1"
+            assert claim_task(bd, "T-aaaaaaa")[0] == "ok"
+            assert claim_task(bd, "T-aaaaaaa")[0] == "ok"  # idempotent for the owner
+            os.environ["CLAUDE_PID"], os.environ["CLAUDE_CODE_SESSION_ID"] = str(os.getppid()), "s2"
+            assert claim_task(bd, "T-aaaaaaa")[0] == "taken"
+            assert release_task(bd, "T-aaaaaaa") is False  # not theirs to release
+            os.environ["CLAUDE_PID"], os.environ["CLAUDE_CODE_SESSION_ID"] = str(os.getpid()), "s1"
+            assert release_task(bd, "T-aaaaaaa") is True
+            os.environ["CLAUDE_PID"], os.environ["CLAUDE_CODE_SESSION_ID"] = "999999999", "s3"
+            assert claim_task(bd, "T-aaaaaaa")[0] == "ok"
+            os.environ["CLAUDE_PID"] = str(os.getpid())  # that pid is dead: claim is pruned
+            assert claim_task(bd, "T-aaaaaaa")[0] == "ok"
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
     print("selftest OK")
 
 
@@ -530,6 +720,12 @@ if __name__ == "__main__":
         selftest()
     elif "--new" in sys.argv:
         run_new(Path(__file__).resolve().parent, sys.argv[sys.argv.index("--new") + 1:])
+    elif "--claim" in sys.argv:
+        run_claim(Path(__file__).resolve().parent, sys.argv[sys.argv.index("--claim") + 1:])
+    elif "--mine" in sys.argv:
+        run_mine(Path(__file__).resolve().parent)
+    elif "--release" in sys.argv:
+        run_claim(Path(__file__).resolve().parent, sys.argv[sys.argv.index("--release") + 1:], release=True)
     elif "--archive" in sys.argv:
         run_archive(Path(__file__).resolve().parent)
     else:

@@ -27,6 +27,7 @@ backlog/
   .gitignore          # generated — enforces the only-.md policy above
   .board              # gitignored, written by the running board server (pid, port)
   .board-sessions     # gitignored, pids of the Claude sessions with this project open
+                      # (live task claims are not here: they live in the git common dir)
   epics/E-001-slug.md
   tasks/T-014-slug.md
 ```
@@ -183,31 +184,35 @@ each project (see `reference/init.md`).
 
 When work on a task actually begins — the point of editing files, running
 commands, or otherwise doing the task, not just discussing or picking it —
-set `status: doing` **and `session_id: $CLAUDE_CODE_SESSION_ID`** on that task
-file (that env var is already in your shell — `echo "$CLAUDE_CODE_SESSION_ID"`
-via Bash if you need to read it explicitly), then run `python3 backlog/build.py`.
-Do this without asking first; it's the literal action of starting the work
-the user just asked for, not an invented change (see the Rules exception
-above). If a different task was already `doing`, leave it as-is — don't
-silently flip it back to `todo`, that's the kind of unrelated status change
-to ask about instead of assuming.
+**claim it first**: `python3 backlog/build.py --claim T-xxxxxxx`. A claim is live
+state kept in the git common dir (shared by every worktree, never committed), so
+parallel Claude sessions see each other even though each worktree has its own copy
+of the task files. If the command fails — a live session already has the task —
+pick another task; never override it. Then set `status: doing` on the task file and
+run `python3 backlog/build.py`. Do this without asking first; it's the literal
+action of starting the work the user just asked for, not an invented change (see
+the Rules exception above). If a different task was already `doing`, leave it
+as-is — don't silently flip it back to `todo`, that's the kind of unrelated status
+change to ask about instead of assuming.
 
-`session_id:` records which session is (or was last) working the task — the
-same signal the "more than 2 `doing`" worktree rule below reads to reason
-about concurrent sessions, and lets anyone glance at a task and tell whether
-it's this session's or a different one's in-flight work before touching it.
-Overwrite it every time a task is picked up, including by the same session
-resuming it — it should always reflect who's currently on it, not history.
+Claims die with their Claude process, so a crash never pins a task. Don't write
+`session_id:` into the task file any more (older files may still carry one; ignore
+it) — the claim is the record, and a frontmatter field just causes merge conflicts.
+Release with `--release T-xxxxxxx` when the task goes to `review` or you stop work on
+it; `--mine` lists what this session holds.
 
-**More than 2 tasks `doing` at once → isolate in a git worktree.** Before
-flipping status, count current `status: doing` rows in `INDEX.md`. If this
-task would be the 3rd (or beyond) concurrently `doing`, do its work in a
-separate git worktree instead of the main checkout — two or more tasks
-already in flight in the shared working tree is exactly the case where a
-third one's uncommitted changes collide with theirs. Use Claude Code's
-built-in worktree isolation (`EnterWorktree`) rather than hand-rolling
-`git worktree add`. The first two concurrent tasks can still share the main
-checkout as today.
+**Shared checkout → isolate in a git worktree.** If `--claim` prints
+`shared checkout: …`, another live session is working in this same working tree and
+its uncommitted changes would collide with yours. Without asking, use Claude Code's
+built-in worktree isolation (`EnterWorktree`) on a new branch `task/<id>`, copy
+`build.py` into the worktree's `backlog/` (it is gitignored, so a fresh worktree
+lacks it — `cp "$CLAUDE_PLUGIN_ROOT/skills/backlog/build.py" backlog/build.py`), and
+re-run `--claim` there so the claim records the new branch and path. The first
+session in a checkout stays put; only the ones after it move. The SessionStart hook
+also lists the other live sessions' tasks, so you know up front.
+
+The board overlays live claims on `doing` cards (branch name), so the user can see
+which session is on what.
 
 ## When a task or epic isn't ready
 
@@ -275,7 +280,8 @@ mode, and `input` stays the user's in every mode.
 `done` is the human's word, not the agent's — it means "the human looked at this and
 accepted it," not "the agent believes it's finished." So when the task's work is
 actually finished, check off any subtask boxes still unchecked and set
-**`status: review`** (not `done`), then run `python3 backlog/build.py`. Do this
+**`status: review`** (not `done`), release the claim (`python3 backlog/build.py
+--release T-xxxxxxx`), then run `python3 backlog/build.py`. Do this
 without asking first — same standing exception as starting a task (see Rules
 above): it's the literal completion of the work just asked for, not an invented
 change. Say in chat that it's ready for review, in one line — restating the

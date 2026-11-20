@@ -189,3 +189,32 @@ def test_commit_failure_is_reported(serve, backlog, put, git_repo, monkeypatch, 
     serve._run_sweeps(backlog)
     out = capsys.readouterr().out
     assert "WARNING" in out and "could not be committed" in out
+
+
+def test_claims_overlay_and_nudge_lookup(serve, build, backlog, put, monkeypatch, capsys):
+    import os
+    put(backlog, "tasks", "T-aaaaaaa-x.md", id="T-aaaaaaa", status="doing", title="x", epic="E-1")
+    monkeypatch.setenv("CLAUDE_PID", str(os.getpid()))
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+    build.claim_task(backlog, "T-aaaaaaa")
+    claims = serve.live_claims(backlog)
+    assert claims["T-aaaaaaa"]["session_id"] == "sess-1"
+    state = serve.BoardState(backlog.parent, backlog).build_state_dict()
+    assert state["tasks"][0]["session_id"] == "sess-1"
+    # another session sees it listed; the owner does not
+    monkeypatch.setenv("CLAUDE_PID", str(os.getppid()))
+    serve.active_sessions(backlog)
+    assert "T-aaaaaaa" in capsys.readouterr().out
+    monkeypatch.setenv("CLAUDE_PID", str(os.getpid()))
+    serve.active_sessions(backlog)
+    assert capsys.readouterr().out == ""
+
+
+def test_config_and_marker_fall_back_in_worktree(serve, backlog, put, git_repo, tmp_path):
+    put(backlog, "tasks", "T-aaaaaaa-x.md", id="T-aaaaaaa", status="todo")
+    git_repo("add", "-A")
+    git_repo("commit", "-qm", "init")
+    (backlog / "board.config.json").write_text('{"port": 4242}')
+    wt = tmp_path.parent / (tmp_path.name + "-wt3")
+    git_repo("worktree", "add", "-q", "-b", "task/z", str(wt))
+    assert serve.configured_port(wt / "backlog") == 4242

@@ -194,3 +194,74 @@ def test_index_md_is_gitignored(build, backlog, git_repo):
     keep = subprocess.run(["git", "check-ignore", "-q", str(backlog / "ADR.md")],
                           cwd=backlog.parent, check=False)
     assert keep.returncode == 1  # hand-written markdown still tracked
+
+
+def _as_session(monkeypatch, pid, sid):
+    monkeypatch.setenv("CLAUDE_PID", str(pid))
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", sid)
+
+
+def test_claim_conflict_release_and_stale_pid(build, backlog, put, monkeypatch):
+    import os
+    put(backlog, "tasks", "T-aaaaaaa-x.md", id="T-aaaaaaa", status="todo")
+    _as_session(monkeypatch, os.getpid(), "s1")
+    assert build.claim_task(backlog, "T-aaaaaaa")[0] == "ok"
+    assert build.claim_task(backlog, "T-aaaaaaa")[0] == "ok"  # idempotent for the owner
+    _as_session(monkeypatch, os.getppid(), "s2")
+    assert build.claim_task(backlog, "T-aaaaaaa")[0] == "taken"
+    assert build.release_task(backlog, "T-aaaaaaa") is False
+    _as_session(monkeypatch, os.getpid(), "s1")
+    assert build.release_task(backlog, "T-aaaaaaa") is True
+    _as_session(monkeypatch, 999999999, "s3")  # dead pid: pruned by the next caller
+    assert build.claim_task(backlog, "T-aaaaaaa")[0] == "ok"
+    _as_session(monkeypatch, os.getppid(), "s2")
+    assert build.claim_task(backlog, "T-aaaaaaa")[0] == "ok"
+
+
+def test_claim_cli_errors(build, backlog, put, monkeypatch):
+    import os
+    put(backlog, "tasks", "T-aaaaaaa-x.md", id="T-aaaaaaa", status="todo")
+    _as_session(monkeypatch, os.getpid(), "s1")
+    with pytest.raises(SystemExit, match="no task T-nope"):
+        build.run_claim(backlog, ["T-nope"])
+    build.run_claim(backlog, ["T-aaaaaaa"])
+    _as_session(monkeypatch, os.getppid(), "s2")
+    with pytest.raises(SystemExit, match="already claimed"):
+        build.run_claim(backlog, ["T-aaaaaaa"])
+
+
+def test_claim_reports_shared_checkout_and_other_branches(build, backlog, put, monkeypatch, capsys):
+    import os
+    put(backlog, "tasks", "T-aaaaaaa-x.md", id="T-aaaaaaa", status="todo")
+    put(backlog, "tasks", "T-bbbbbbb-x.md", id="T-bbbbbbb", status="todo")
+    _as_session(monkeypatch, os.getpid(), "s1")
+    build.run_claim(backlog, ["T-aaaaaaa"])
+    _as_session(monkeypatch, os.getppid(), "s2")
+    build.run_claim(backlog, ["T-bbbbbbb"])
+    assert "shared checkout: T-aaaaaaa" in capsys.readouterr().out
+
+
+def test_claims_shared_across_worktrees(build, backlog, put, git_repo, tmp_path, monkeypatch):
+    import os
+    put(backlog, "tasks", "T-aaaaaaa-x.md", id="T-aaaaaaa", status="todo")
+    git_repo("add", "-A")
+    git_repo("commit", "-qm", "init")
+    wt = tmp_path.parent / (tmp_path.name + "-wt")
+    git_repo("worktree", "add", "-q", "-b", "task/x", str(wt))
+    wt_backlog = wt / "backlog"
+    assert wt_backlog.is_dir()
+    _as_session(monkeypatch, os.getpid(), "s1")
+    assert build.claim_task(backlog, "T-aaaaaaa")[0] == "ok"
+    _as_session(monkeypatch, os.getppid(), "s2")
+    assert build.claim_task(wt_backlog, "T-aaaaaaa")[0] == "taken"  # one file, both worktrees
+
+
+def test_config_falls_back_to_main_worktree(build, backlog, put, git_repo, tmp_path):
+    put(backlog, "tasks", "T-aaaaaaa-x.md", id="T-aaaaaaa", status="todo")
+    git_repo("add", "-A")
+    git_repo("commit", "-qm", "init")
+    (backlog / "board.config.json").write_text('{"require_deferral_links": true}')  # gitignored by *
+    wt = tmp_path.parent / (tmp_path.name + "-wt2")
+    git_repo("worktree", "add", "-q", "-b", "task/y", str(wt))
+    assert not (wt / "backlog" / "board.config.json").exists()
+    assert build.configured_require_deferral_links(wt / "backlog") is True

@@ -20,6 +20,11 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/server/serve.py\" --waiting-summary --quiet",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/server/serve.py\" --active-sessions --quiet",
+            "timeout": 5
           }
         ]
       }
