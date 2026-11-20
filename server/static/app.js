@@ -126,6 +126,10 @@
     const reviewLabel = reviewCountdownLabel(t);
     const reviewTag = reviewLabel
       ? ` · <span class="review-tag" title="auto-promotes to done unless reviewed first">${reviewLabel}</span>` : "";
+    const needsTag = t.status === "investigate" && t.needs
+      ? ` · <span class="needs-tag needs-${escapeHtml(t.needs)}" title="waiting on: ${escapeHtml(t.needs)}">${escapeHtml(t.needs)}</span>` : "";
+    const autoTag = t.decisions === "auto"
+      ? ` · <span class="auto-tag" title="agent makes design decisions (decisions: auto)">auto</span>` : "";
     return `
       <div class="card" data-kind="task" data-id="${t.id}" tabindex="0" role="button"
            aria-label="${escapeHtml(t.id)}: ${escapeHtml(t.title)}${archived ? " (archived)" : ""}">
@@ -134,7 +138,7 @@
           <span class="pri-badge pri-${t.priority}">${t.priority}</span>
         </div>
         <div class="card-title">${escapeHtml(t.title)}</div>
-        <div class="card-meta">${t.epic}${t.total ? ` · ${t.done}/${t.total}` : ""}${sessionTag}${reviewTag}${archived
+        <div class="card-meta">${t.epic}${t.total ? ` · ${t.done}/${t.total}` : ""}${sessionTag}${reviewTag}${needsTag}${autoTag}${archived
           ? ` · <span class="archived-tag" title="legacy archive/ item — deleted by the retention sweep">archived</span>` : ""}</div>
         ${t.total ? `<div class="bar"><div style="width:${pct}%"></div></div>` : ""}
       </div>`;
@@ -224,12 +228,16 @@
     const reviewLabel = kind === "task" ? reviewCountdownLabel(item) : null;
     const reviewChip = reviewLabel
       ? `<span class="drawer-chip review-tag" title="auto-promotes to done unless reviewed first">${reviewLabel}</span>` : "";
+    const needsChip = kind === "task" && item.status === "investigate" && item.needs
+      ? `<span class="drawer-chip needs-tag needs-${escapeHtml(item.needs)}">needs: ${escapeHtml(item.needs)}</span>` : "";
+    const autoChip = kind === "task" && item.decisions === "auto"
+      ? `<span class="drawer-chip auto-tag">decisions: auto</span>` : "";
     const chips = (kind === "task"
       ? `<span class="drawer-chip">${item.status}</span>
          <span class="drawer-chip pri-${item.priority}">${item.priority}</span>
          <span class="drawer-chip">${item.epic}</span>
          ${item.total ? `<span class="drawer-chip">${item.done}/${item.total} subtasks</span>` : ""}`
-      : `<span class="drawer-chip status-badge ${item.status}">${item.status}</span>`) + sessionChip + reviewChip + archivedChip;
+      : `<span class="drawer-chip status-badge ${item.status}">${item.status}</span>`) + sessionChip + reviewChip + needsChip + autoChip + archivedChip;
 
     const docsLink = item.docs
       ? `<div class="drawer-path">docs: <code>${escapeHtml(item.docs)}</code>

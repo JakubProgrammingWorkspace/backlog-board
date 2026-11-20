@@ -8,6 +8,7 @@ id: E-002
 title: Import pipeline hardening
 created: 2026-08-11T09:30:00   # from `build.py --new epic`
 updated: 2026-08-11
+decisions:                      # optional: ask | auto — default for this epic's tasks
 ---
 
 ## Goal
@@ -43,6 +44,9 @@ completed:              # set to today's date alongside status: done — by a hu
 session_id:              # set to $CLAUDE_CODE_SESSION_ID alongside status: doing —
                          # which session is (or was last) working this task
 docs: docs/import-open-concerns.md#quoted-commas
+needs:                   # only while status: investigate: research | decision |
+                         # external | input — see SKILL.md; removed when it resolves
+decisions:               # optional: ask | auto — overrides the epic's / config's
 ---
 
 ## Context
@@ -51,6 +55,10 @@ Symptom today, why it matters, what's already known.
 ## Subtasks
 - [ ] first concrete step
 - [ ] second
+
+## Done when
+- Observable check(s) the human can test against, 1-3 lines; at least one manual
+  check for user-facing work.
 
 ## Notes
 Findings appended as work proceeds. Keep this, don't overwrite — it's the
@@ -62,10 +70,10 @@ project's normal docs folder. The board renders it as a link. Omit if there
 isn't one.
 
 Statuses:
-- `investigate` — not yet actionable: scope depends on a decision only the user can
-  make, an investigation, a websearch, or something concrete and *external* is
-  stopping otherwise-understood work (another task, a missing credential, a vendor
-  fix).
+- `investigate` — not yet actionable: scope depends on a decision, an
+  investigation, a websearch, or something concrete and *external* is stopping
+  otherwise-understood work (another task, a missing credential, a vendor fix).
+  Always carries `needs:` — `research`, `decision`, `external` or `input`.
 - `todo` — understood and ready to pick up, just not started.
 - `doing` — actively being worked.
 - `review` — the agent believes the work is finished; awaiting human acceptance.
@@ -158,6 +166,7 @@ Appended to `backlog/ADR.md`, newest last:
 ```markdown
 ## ADR-003 — Plain CSV parsing over a dataframe library
 Date: 2026-08-11 · Status: accepted · Supersedes: —
+Decided by: user          <!-- or "agent (auto)" + the task, in decisions: auto mode -->
 
 **Context**
 What prompted the decision.

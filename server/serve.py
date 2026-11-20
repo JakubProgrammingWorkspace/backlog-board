@@ -33,6 +33,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DEFAULT_PORT = 3201
 CONFIG_FILENAME = "board.config.json"
+DECISION_MODES = ("ask", "auto")
+NEEDS_VALUES = ("research", "decision", "external", "input")
 SESSIONS_FILENAME = ".board-sessions"  # pids of the Claude processes with this project
                                         # open — kept separate from .board, which lives
                                         # and dies with the server process itself
@@ -328,6 +330,57 @@ def configured_review_auto_accept(backlog_dir: Path) -> bool:
     return True if enabled is None else bool(enabled)
 
 
+def configured_decisions(backlog_dir: Path) -> str:
+    """Read {"decisions": "ask"|"auto"} from board.config.json — who makes design
+    decisions by default. "ask" (default, also any bad value) = the agent asks the
+    user; "auto" = the agent decides and records an ADR. A task's or its epic's own
+    `decisions:` frontmatter overrides this, see effective_decisions."""
+    v = str(_read_config(backlog_dir).get("decisions", "ask")).lower()
+    return v if v in DECISION_MODES else "ask"
+
+
+def effective_decisions(task, epics_by_id, default: str) -> str:
+    """task `decisions:` > its epic's > the config default."""
+    for src in (task, epics_by_id.get(task.get("epic"), {})):
+        v = str(src.get("decisions", "")).lower()
+        if v in DECISION_MODES:
+            return v
+    return default
+
+
+def waiting_on_user(tasks, epics, default: str):
+    """investigate tasks only the human can unblock: needs=input (keys/access/data —
+    never delegable) or needs=decision while the effective mode is "ask". A missing
+    or unknown `needs:` counts as input — loud beats silently stalled."""
+    epics_by_id = {e.get("id"): e for e in epics}
+    out = []
+    for t in tasks:
+        if t.get("status") != "investigate":
+            continue
+        needs = str(t.get("needs", "")).lower()
+        if needs not in NEEDS_VALUES:
+            needs = "input"
+        if needs == "input" or (needs == "decision"
+                                and effective_decisions(t, epics_by_id, default) == "ask"):
+            out.append(t)
+    return out
+
+
+def waiting_summary(backlog_dir: Path):
+    """SessionStart hook path: one line naming tasks that wait on the user. No stdout
+    at all when there are none — this runs in every project at every session start."""
+    waiting = waiting_on_user(load_items(backlog_dir / "tasks", "task"),
+                              load_items(backlog_dir / "epics", "epic"),
+                              configured_decisions(backlog_dir))
+    if not waiting:
+        return
+    names = ", ".join(f"{t.get('id', '?')} ({t.get('title', '')})" for t in waiting)
+    message = (f"Backlog: {len(waiting)} task{'s' if len(waiting) != 1 else ''} wait"
+               f"{'' if len(waiting) != 1 else 's'} on you — {names}.")
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "SessionStart", "additionalContext": message}}))
+
+
 def configured_nudge_at_tokens(backlog_dir: Path) -> int:
     """Read {"nudge_at_tokens": N} from board.config.json — context size the
     context-nudge hook starts firing at. Falls back to DEFAULT_NUDGE_AT_TOKENS on any
@@ -609,6 +662,8 @@ class BoardState:
         review_days = configured_review_days(self.backlog_dir)
         if review_days is None:
             review_days = DEFAULT_REVIEW_AFTER_DAYS
+        default_decisions = configured_decisions(self.backlog_dir)
+        epics_by_id = {e.get("id"): e for e in epics}
 
         return {
             "root": str(self.project_root),
@@ -629,6 +684,8 @@ class BoardState:
                  "priority": t.get("priority", "P3"), "created": t.get("created", ""),
                  "updated": t.get("updated", ""), "docs": t.get("docs", ""),
                  "session_id": t.get("session_id", ""),
+                 "needs": t.get("needs", "") if t.get("status") == "investigate" else "",
+                 "decisions": effective_decisions(t, epics_by_id, default_decisions),
                  "done": t["_done"], "total": t["_total"], "body": t.get("_body", ""),
                  "path": rel(t["_path"])}
                 for t in tasks
@@ -1503,6 +1560,58 @@ def _selftest_sessions():
         _clear_sessions(backlog_dir)  # already gone -> no-op, not an error
 
 
+def _selftest_decisions_and_waiting():
+    import io
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        bd = Path(tmp) / "backlog"
+        (bd / "tasks").mkdir(parents=True)
+        (bd / "epics").mkdir()
+        assert configured_decisions(bd) == "ask"
+        (bd / CONFIG_FILENAME).write_text('{"decisions": "bogus"}')
+        assert configured_decisions(bd) == "ask"
+        (bd / CONFIG_FILENAME).write_text('{"decisions": "auto"}')
+        assert configured_decisions(bd) == "auto"
+
+        # precedence: task > epic > config
+        epics = {"E-1": {"decisions": "ask"}, "E-2": {}}
+        assert effective_decisions({"epic": "E-1"}, epics, "auto") == "ask"
+        assert effective_decisions({"epic": "E-1", "decisions": "auto"}, epics, "ask") == "auto"
+        assert effective_decisions({"epic": "E-2"}, epics, "auto") == "auto"
+
+        def task(i, status, needs=None, extra=""):
+            n = f"needs: {needs}\n" if needs else ""
+            (bd / "tasks" / f"T-{i}-x.md").write_text(
+                f"---\nid: T-{i}\ntitle: t{i}\nepic: E-2\nstatus: {status}\n{n}{extra}---\n")
+
+        def summary():
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                waiting_summary(bd)
+            return buf.getvalue()
+
+        (bd / CONFIG_FILENAME).write_text('{"decisions": "ask"}')
+        task(1, "investigate", "research")
+        task(2, "investigate", "external")
+        task(3, "todo", "input")           # needs only counts while investigating
+        assert summary() == ""
+        task(4, "investigate", "input")
+        task(5, "investigate")             # missing needs -> treated as input
+        task(6, "investigate", "decision")  # ask mode -> waits on user
+        out = summary()
+        assert all(f"T-{i}" in out for i in (4, 5, 6)) and "T-1 " not in out, out
+        assert "SessionStart" in out and "3 tasks wait on you" in out, out
+
+        # auto mode: decision tasks no longer wait on the user; input still does
+        (bd / CONFIG_FILENAME).write_text('{"decisions": "auto"}')
+        out = summary()
+        assert "T-4" in out and "T-5" in out and "T-6" not in out, out
+        # per-task override back to ask
+        task(6, "investigate", "decision", "decisions: ask\n")
+        assert "T-6" in summary()
+
+
 def _selftest_context_nudge():
     import io
     import tempfile
@@ -1598,6 +1707,7 @@ def selftest():
     _selftest_refresh_index()
     _selftest_sessions()
     _selftest_context_nudge()
+    _selftest_decisions_and_waiting()
     _selftest_live()
     print("selftest OK")
 
@@ -1628,6 +1738,10 @@ def main(argv=None):
                          help="UserPromptSubmit hook path: warn once context is large and a "
                               "doing task belongs to this session — emits hookSpecificOutput "
                               "JSON when it fires, nothing otherwise")
+    parser.add_argument("--waiting-summary", action="store_true",
+                         help="SessionStart hook path: one line naming investigate tasks "
+                              "that wait on the user (needs: input, or needs: decision in "
+                              "ask mode) — emits hookSpecificOutput JSON, nothing otherwise")
     parser.add_argument("--quiet", action="store_true",
                          help="exit 0 with no output for the \"no backlog dir found\" case, "
                               "and (with --stop/--session-end) the \"not running\" case — for a hook "
@@ -1658,6 +1772,9 @@ def main(argv=None):
 
     if args.context_nudge:
         return context_nudge(backlog_dir)
+
+    if args.waiting_summary:
+        return waiting_summary(backlog_dir)
 
     if args.session_end:
         return session_end(backlog_dir, quiet=args.quiet)

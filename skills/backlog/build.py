@@ -260,9 +260,12 @@ def build_index(epics, tasks, backlog_dir: Path):
     for t in sorted(tasks, key=_sort_key):
         done, total = t["_done"], t["_total"]
         progress = f"{done}/{total}" if total else "—"
+        status = t.get("status", "todo")
+        if status == "investigate" and t.get("needs"):
+            status += f" ({t['needs']})"  # research | decision | external | input
         lines.append(
             f"| {t.get('id', '')} | {t.get('title', '')} | {t.get('epic', '')} | "
-            f"{t.get('status', 'todo')} | {t.get('priority', '')} | {progress} |"
+            f"{status} | {t.get('priority', '')} | {progress} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -396,6 +399,9 @@ def selftest():
         assert "T-001" in str(exc) and "a" in str(exc) and "b" in str(exc), exc
 
     # check_known_status: every valid status passes for both epics and tasks
+    idx = build_index([], [{"id": "T-1", "status": "investigate", "needs": "input",
+                            "_done": 0, "_total": 0}], Path("."))
+    assert "investigate (input)" in idx, idx
     check_known_status(
         [{"id": "E-001", "status": "investigate", "_path": "e"}],
         [{"id": f"T-{i:03d}", "status": s, "_path": "t"}

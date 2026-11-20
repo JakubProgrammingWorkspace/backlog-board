@@ -1,7 +1,7 @@
 {
   "name": "backlog-board",
   "description": "Markdown-native epic/task/ADR tracker with a live, read-only board server (search, filters, SSE live-reload). No MCP, stdlib-only Python server, no build step.",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "author": {
     "name": "Jakub"
   },
@@ -15,6 +15,11 @@
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/server/serve.py\" --quiet",
             "timeout": 5,
             "statusMessage": "Starting backlog board (if this project has one)..."
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/server/serve.py\" --waiting-summary --quiet",
+            "timeout": 5
           }
         ]
       }

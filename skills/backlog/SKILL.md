@@ -22,7 +22,8 @@ backlog/
   ADR.md              # append-only decision log
   board.config.json   # optional — {"port": N, "archive_after_days": N,
                       #   "auto_commit": bool, "auto_commit_branches": [..], "archive_enabled": bool,
-                      #   "nudge_at_tokens": N, "nudge_every_tokens": N}, gitignored
+                      #   "nudge_at_tokens": N, "nudge_every_tokens": N,
+                      #   "decisions": "ask"|"auto"}, gitignored
   .gitignore          # generated — enforces the only-.md policy above
   .board              # gitignored, written by the running board server (pid, port)
   .board-sessions     # gitignored, pids of the Claude sessions with this project open
@@ -55,6 +56,8 @@ priority: P1           # P1 urgent/blocking, P2 normal, P3 low/someday
 created: 2026-08-11T09:30:00   # printed by `build.py --new`, ISO datetime
 updated: 2026-08-11
 docs: docs/some-investigation.md#anchor   # optional, link to source doc
+needs: decision        # only while status: investigate — see "When a task or epic isn't ready"
+decisions: auto        # optional — ask | auto, overrides the epic's and the config's, see "Decision mode"
 ---
 
 ## Context
@@ -64,9 +67,15 @@ Why this exists.
 - [ ] first concrete step
 - [ ] second
 
+## Done when
+- 1-3 observable checks, at least one a manual check when the work is user-facing
+
 ## Notes
 Findings appended as work proceeds.
 ```
+
+`## Done when` is what the human tests against during review. Write it when you
+create the task; encouraged, not validated.
 
 Epic files are the same minus `epic`/`priority`, plus `## Goal` and
 `## Scope / Non-goals`. See `reference/templates.md` for both in full, plus the
@@ -104,7 +113,9 @@ ADR entry format.
 `reference/templates.md`. Two rules:
 
 1. **Never append without an explicit yes** from the user — propose the entry,
-   show its content, wait for confirmation.
+   show its content, wait for confirmation. *Exception:* a task whose effective
+   decision mode is `auto` (see "Decision mode") — there you write the entry
+   yourself, with `Decided by: agent (auto)`.
 2. **Know when to ask.** Raise "should this be an ADR?" when a decision:
    - changes a dependency, a storage format, or a file format
    - changes an API/contract shape
@@ -213,6 +224,25 @@ hand). Do this without asking first, same standing exception as `doing`/`review`
 discovering mid-start that a task isn't actually actionable is part of the literal
 work of starting it, not an invented change.
 
+Tag *why* with `needs:` — **always set it together with `investigate`**:
+
+- `research` — you can resolve it yourself: a code dig or a websearch. Offer to
+  delegate it, see "Session boundaries".
+- `decision` — a design choice. Who makes it depends on the decision mode (below).
+- `external` — waiting on something outside the repo: another task, a vendor
+  fix. Nobody acts until it changes.
+- `input` — keys, access, data only the user can supply. Never delegable in any
+  mode. (In a POC a test/sandbox key you can actually obtain is fine; if none
+  exists, it waits.)
+
+If a `research` dig ends in "this depends on a product choice", re-tag it
+`decision`; don't guess. Remove `needs:` when flipping to `todo`/`doing`. A
+missing `needs:` on an `investigate` task is read as `input`.
+
+The plugin's `SessionStart` hook lists tasks waiting on the user (`input`, and
+`decision` while the mode is `ask`) as one line of context. `research` and
+`external` stay quiet by design.
+
 Resolving it means actually getting the answer — from the user, from investigating,
 from a websearch — not re-reading the task and guessing. Once resolved, fold the
 answer into `## Context` (not just `## Notes`, so the task file stays self-contained
@@ -220,6 +250,25 @@ for whoever works it next) and flip to `todo`, or straight to `doing` if picking
 up immediately.
 
 If that dig is wide, offer to delegate it — see "Session boundaries".
+
+## Decision mode — who makes design decisions
+
+`board.config.json` `{"decisions": "ask"|"auto"}` sets the default (`ask` when
+unset). A task's or its epic's own `decisions:` frontmatter overrides it —
+task > epic > config.
+
+- **`ask`** — a design choice that changes the outcome becomes `investigate` +
+  `needs: decision`, and you ask the user.
+- **`auto`** — you make the design choices yourself and keep going. Record each
+  one that meets the ADR triggers above as an ADR (`Decided by: agent (auto)`,
+  naming the task); trivia goes in the task's `## Notes`. `needs: decision` is
+  never raised. Meant for POCs and quick features: the user judges the result
+  and reverts it, or files tasks for what to improve.
+
+`auto` covers reversible, in-repo design choices only. It never extends to
+pushing or deploying, spending money, deleting data, anything outside the
+repo, or bypassing a security measure — those still go to the user in every
+mode, and `input` stays the user's in every mode.
 
 ## Finishing a task — status: review
 
@@ -229,7 +278,9 @@ actually finished, check off any subtask boxes still unchecked and set
 **`status: review`** (not `done`), then run `python3 backlog/build.py`. Do this
 without asking first — same standing exception as starting a task (see Rules
 above): it's the literal completion of the work just asked for, not an invented
-change. Say in chat that it's ready for review, in one line.
+change. Say in chat that it's ready for review, in one line — restating the
+task's `## Done when` checks so the human knows what to test, and, in `auto`
+mode, the design decisions you made (with their ADR ids).
 
 `review` is not a request for permission to keep going — the work is done, this is
 just the acceptance step. Don't block on it before moving to the next task.

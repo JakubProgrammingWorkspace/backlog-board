@@ -46,6 +46,7 @@ for <your goal>"*. It creates `backlog/`, the epic and the task files, and runs
 - [Updating](#updating)
 - [Session boundaries](#session-boundaries)
 - [Configuration reference](#configuration-reference)
+- [Waiting on you: `needs:` and `decisions:`](#waiting-on-you-needs-and-decisions)
 - [Regenerating INDEX.md](#regenerating-indexmd)
 - [Requirements](#requirements)
 - [Design notes](#design-notes)
@@ -311,6 +312,7 @@ it yourself if the team should share settings):
 | `archive_enabled` | `true` | Turns the automatic startup sweep off. Manual `build.py --archive` still works either way. |
 | `nudge_at_tokens` | `120000` | Context size (real token count) at which the session-boundary nudge starts firing. |
 | `nudge_every_tokens` | `25000` | How much further context has to grow before the nudge fires again. |
+| `decisions` | `"ask"` | Who makes design decisions by default: `ask` = the agent asks you (`investigate` + `needs: decision`); `auto` = the agent decides and records an ADR (`Decided by: agent (auto)`) — for POCs and quick features. Override per epic or per task with a `decisions:` frontmatter field (task > epic > config). `auto` never covers pushing/deploying, spending, deleting data or anything outside the repo. |
 | `require_deferral_links` | `false` | When `true`, `build.py` refuses to build if a `done`/`review` task has an unchecked subtask that doesn't name a filed task id (`T-0xx`) — deferred work has to be filed as a follow-up, not just left as a note. |
 
 ```json
@@ -324,9 +326,18 @@ it yourself if the team should share settings):
   "auto_commit_branches": ["main", "master"],
   "nudge_at_tokens": 120000,
   "nudge_every_tokens": 25000,
+  "decisions": "ask",
   "require_deferral_links": false
 }
 ```
+
+## Waiting on you: `needs:` and `decisions:`
+
+An `investigate` task carries `needs:` — `research` (agent digs), `decision` (a design
+choice), `external` (waiting outside the repo) or `input` (keys/access/data). The
+`SessionStart` hook prints one line listing tasks that wait on *you* (`input`, plus
+`decision` while the mode is `ask`); `research`/`external` stay quiet. Task files also
+get a `## Done when` section — the checks you test against at review time.
 
 ## Regenerating INDEX.md
 
