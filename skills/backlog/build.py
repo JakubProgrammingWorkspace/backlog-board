@@ -14,6 +14,7 @@ dependency-free so it works standalone in a project without the plugin installed
 """
 import json
 import random
+import string
 import re
 import subprocess
 import sys
@@ -22,7 +23,7 @@ from pathlib import Path
 
 CHECKBOX_RE = re.compile(r"^\s*-\s*\[([ xX])\]", re.MULTILINE)
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n?", re.DOTALL)
-DEFERRAL_REF_RE = re.compile(r"\bT-[0-9a-z]+\b")  # checked against existing ids, so over-matching is harmless
+DEFERRAL_REF_RE = re.compile(r"\bT-[0-9A-Za-z]+\b")  # checked against existing ids, so over-matching is harmless
 SUBTASK_LINE_RE = re.compile(r"^(\s*)-\s*\[([ xX])\]")
 HEADING_RE = re.compile(r"^#{1,6}\s")
 VALID_STATUSES = {"investigate", "todo", "doing", "review", "done", "inprogress"}  # inprogress -> todo in load_items
@@ -50,8 +51,8 @@ def checkbox_progress(body):
     return done, len(boxes)
 
 
-ID_ALPHABET = "23456789bcdfghjkmnpqrstvwxz"  # no vowels (no words), no 0/1/l/o lookalikes
-ID_LENGTH = 5
+ID_ALPHABET = string.ascii_lowercase + string.digits  # lowercase only: ids are filenames, mixed case clashes on macOS/Windows
+ID_LENGTH = 7
 
 
 def _id_key(item_id):
@@ -68,7 +69,7 @@ def _sort_key(item):
 
 
 def new_id(items, prefix, rng=random):
-    """A fresh random id such as T-k7f2m. No counter, so two people or branches never
+    """A fresh random id such as T-k7f2m9x. No counter, so two people or branches never
     need to coordinate; retried until it clashes with no existing id."""
     taken = {it.get("id") for it in items}
     while True:
@@ -361,7 +362,7 @@ def selftest():
 
     items = [{"id": "T-001"}, {"id": "T-003"}]
     fresh = new_id(items, "T")
-    assert re.fullmatch(r"T-[23456789bcdfghjkmnpqrstvwxz]{5}", fresh), fresh
+    assert re.fullmatch(r"T-[a-z0-9]{7}", fresh), fresh
     assert fresh not in {"T-001", "T-003"}
     assert _sort_key({"id": "T-9", "created": "2026-01-01"}) < _sort_key({"id": "T-10", "created": "2026-01-01"})
     assert _sort_key({"id": "T-zz", "created": "2026-01-01"}) < _sort_key({"id": "T-aa", "created": "2026-01-02T09:00"})

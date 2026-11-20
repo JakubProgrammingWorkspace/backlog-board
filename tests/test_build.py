@@ -138,7 +138,7 @@ def test_new_id_format_and_uniqueness(build):
     import re
     ids = {build.new_id([], "T") for _ in range(200)}
     assert len(ids) == 200  # no collisions in a small sample
-    assert all(re.fullmatch(r"T-[23456789bcdfghjkmnpqrstvwxz]{5}", i) for i in ids)
+    assert all(re.fullmatch(r"T-[a-z0-9]{7}", i) for i in ids)
     assert build.new_id([], "E").startswith("E-")
 
 
